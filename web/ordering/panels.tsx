@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Meal, OwnerSummary, RoomSnapshot, Store } from "../../shared/contracts";
+import type { Meal, OwnerSummary, RoomSnapshot, Store, StreetStore } from "../../shared/contracts";
 import { budgetStatus, DIET_FILTERS, dietTagsOf, matchesDietFilters } from "../../shared/diet";
 import { describeDelivery, describeFulfillment, distanceKm, evaluateDelivery } from "../../shared/delivery";
 import { styleOf } from "../../shared/town";
@@ -20,7 +20,7 @@ function qtyOf(snap: RoomSnapshot, mealId: string) {
   return snap.myItems.find((i) => i.mealId === mealId)?.quantity ?? 0;
 }
 
-function StoreIcon({ store }: { store: Store }) {
+function StoreIcon({ store }: { store: Pick<Store, "styleKey"> }) {
   const [src] = useState(() => {
     const c = makeCanvas(12, 12);
     drawIcon(ctxOf(c), styleOf(store.styleKey).icon, 1, 1);
@@ -81,6 +81,36 @@ export function MenuPanel({
           <span className="muted">已依篩選隱藏 {hidden} 道</span>
           <button type="button" className="btn small" onClick={prefs.clearFilters}>顯示全部</button>
         </div>}
+      </div>
+    </section>
+  );
+}
+
+/** 不在本團的店（#78）：唯讀菜單，只能看，不能加點。 */
+export function StreetMenuPanel({ store, focusMealId }: { store: StreetStore; focusMealId?: string | null }) {
+  const meals = store.meals ?? [];
+  return (
+    <section className="stack menu-panel" aria-label={`${store.name} 菜單`}>
+      <div className="menu-head">
+        <div className="shop-head">
+          <StoreIcon store={store} />
+          <div><h2>{store.name}</h2></div>
+        </div>
+      </div>
+      <div className="banner info">這家不在本團，只能看菜單，不能點餐。想吃這家可以另外開一團。</div>
+      <div className="menu">
+        {meals.map((m) => (
+          <div key={m.id} className={`meal-row${m.id === focusMealId ? " focused" : ""}`}
+            ref={(el) => { if (m.id === focusMealId && el) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }}>
+            <MealImg assetKey={m.imageAssetKey} alt={m.name} />
+            <div>
+              <div className="meal-name">{m.name}</div>
+              <div className="price">{money(m.priceTwd)}</div>
+              <div>{m.tags.map((t) => <span className={`tag${dietTagsOf([t]).size > 0 ? " diet" : ""}`} key={t}>{t}</span>)}</div>
+            </div>
+          </div>
+        ))}
+        {meals.length === 0 && <div className="muted">這家目前沒有供應中的餐點。</div>}
       </div>
     </section>
   );

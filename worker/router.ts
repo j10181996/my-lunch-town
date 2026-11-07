@@ -4,7 +4,7 @@ import { registerRoutes } from "../server/routes";
 import { err } from "./db";
 
 export interface ApiRequest { sid: string; body: unknown; params: Record<string, string> }
-type Handler = (request: ApiRequest, reply: { type(value: string): { send(value: string): string } }) => unknown;
+type Handler = (request: ApiRequest, reply: { type(value: string): { send(value: string | Uint8Array): string | Uint8Array } }) => unknown;
 
 export function dispatch(ctx: Ctx, sid: string, method: string, path: string, body: unknown, demoKey?: string) {
   const routes: Array<{ method: string; path: string; handler: Handler }> = [];
@@ -20,7 +20,7 @@ export function dispatch(ctx: Ctx, sid: string, method: string, path: string, bo
     if (!match) continue;
     const params = Object.fromEntries(keys.map((key, i) => [key, decodeURIComponent(match[i + 1])]));
     let contentType = "application/json; charset=utf-8";
-    const reply = { type(value: string) { contentType = value; return { send(value: string) { return value; } }; } };
+    const reply = { type(value: string) { contentType = value; return { send(value: string | Uint8Array) { return value; } }; } };
     return Promise.resolve(route.handler({ sid, body, params }, reply)).then((result) => ({ result, contentType }));
   }
   throw err.invalid("找不到這個 API");

@@ -11,6 +11,8 @@ export interface ShopkeeperContext {
   deadlineAt: number | null;
   /** 散步模式：只能逛，不能點餐。 */
   solo: boolean;
+  /** 這家不在本團（#78）：能進店看菜單，但不能點餐。 */
+  notInRoom?: boolean;
   /** 第幾次和店主說話（從 0 開始），用來輪替台詞。 */
   talk: number;
   now: number;
@@ -33,16 +35,18 @@ function greeting(now: number) {
 
 export function shopkeeperLine(ctx: ShopkeeperContext): string {
   // 店家自己快要不接單了是店主該講的事，出現時不輪替其他台詞；團的收單由團主喊。
-  if (!ctx.solo && !ctx.roomClosed && ctx.deadlineAt !== null && ctx.deadlineAt > ctx.now) {
+  const browsing = ctx.solo || !!ctx.notInRoom;
+  if (!browsing && !ctx.roomClosed && ctx.deadlineAt !== null && ctx.deadlineAt > ctx.now) {
     const minutes = Math.ceil((ctx.deadlineAt - ctx.now) / 60000);
     if (minutes <= DEADLINE_REMIND_MINUTES) return `本店再 ${minutes} 分鐘就不接單囉！`;
   }
 
   const lines = [greeting(ctx.now)];
   if (ctx.solo) lines.push("喜歡的話，揪大家來開團吧！");
+  else if (ctx.notInRoom) lines.push("這次沒揪到我們家，下次見！");
   else if (ctx.ordered.length === 1) lines.push(`${ctx.ordered[0].name}×${ctx.ordered[0].quantity}，馬上準備！`);
   else if (ctx.ordered.length > 1) lines.push(`${ctx.ordered.length} 樣餐點都記下了，馬上準備！`);
-  const tip = !ctx.solo && !ctx.roomClosed && !ctx.ordered.length ? "站到陳列台前按 Enter 點餐喔。" : "吃飽才有力氣，下午加油！";
+  const tip = !browsing && !ctx.roomClosed && !ctx.ordered.length ? "站到陳列台前按 Enter 點餐喔。" : "吃飽才有力氣，下午加油！";
   if (ctx.meals.length) {
     // 每輪完一圈台詞才換下一道推薦，避免推薦永遠落在同一道。
     const meal = ctx.meals[Math.floor(ctx.talk / (lines.length + 2)) % ctx.meals.length];

@@ -79,7 +79,8 @@ try {
     }
     await walkTouch("y", 360);
     await walkTouch("x", store.door.x * 960);
-    await walkTouch("y", store.door.y * 608 - 2);
+    // 導航允許 5px 誤差，目標要深入門框，才不會在自動進店門檻外提早停止。
+    await walkTouch("y", store.door.y * 608 - 6);
     await page.waitForFunction((scene) => window.__lunchGame.state().scene === scene, store.sceneId);
     await page.waitForTimeout(500);
     const fixed = await state();

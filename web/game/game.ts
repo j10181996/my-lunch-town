@@ -1,9 +1,10 @@
+import { mealImagesVersion } from "../art/meals";
 import { layoutMapLabels, type MapLabel } from "./text-layout";
 import { animalFrame } from "../art/animals";
 import { createTownFriends, friendPose, type TownFriend, type FriendPose } from "./town-life";
 import { ACHIEVEMENTS, type Accessory, type AchievementId } from "./collection";
 import type { Point, Direction, Meal, MoveInput, PlayerPresence, SceneId, Store } from "../../shared/contracts";
-import { STREET_W, STREET_H, STREET_SPAWN, sceneSize, viewSize } from "../../shared/town";
+import { STREET_W, STREET_H, STREET_SPAWN, lotDoor, sceneSize, viewSize } from "../../shared/town";
 import { CHAR_H, CHAR_W, characterFrames } from "../art/characters";
 import { buildShop, buildStreet, type ProductSlot, type Rect, type SceneArt } from "../art/scenes";
 import type { StreetStore } from "../../shared/contracts";
@@ -75,15 +76,17 @@ export class Game {
   private dpr = 1;
 
   private deliveryPoint: Point | null = null;
+  /** 可進店的店：本團店家加上不在本團的街上店面。 */
   private stores: Store[] = [];
-  private streetStores: StreetStore[] = [];
   private meals: Meal[] = [];
+  private catalogKey = "";
   private nearProduct: ProductSlot | null = null;
   private myQty = new Map<string, number>();
   private sceneId: SceneId = "street";
   private art: SceneArt | null = null;
   private streetArt: SceneArt | null = null;
   private shopArt = new Map<string, SceneArt>();
+  private mealImageVersion = 0;
 
   private me: Actor = { x: STREET_SPAWN.x, y: STREET_SPAWN.y, dir: "down", moving: false, animT: 0 };
   private meId = "";
@@ -243,14 +246,13 @@ export class Game {
     this.display.height = Math.round(VIEW_H * s * this.dpr);
   }
 
-  /** streetStores 只是街景：不在 this.stores，因此不會出現進店提示。 */
+  /** streetStores 不在本團：一樣能進店看陳列台，是否能點由外層決定（#78）。 */
   setCatalog(stores: Store[], meals: Meal[], streetStores: StreetStore[] = []) {
     const sig = catalogSig(stores, meals, streetStores);
-    const prev = catalogSig(this.stores, this.meals, this.streetStores);
-    this.stores = stores;
-    this.meals = meals;
-    this.streetStores = streetStores;
-    if (sig === prev && this.streetArt) return;
+    this.stores = [...stores, ...streetStores.map(streetStoreAsStore)];
+    this.meals = [...meals, ...streetStores.flatMap((s) => s.meals ?? [])];
+    if (sig === this.catalogKey && this.streetArt) return;
+    this.catalogKey = sig;
     this.streetArt = buildStreet(stores, new Set(stores.filter((s) => s.resting).map((s) => s.id)), streetStores);
     this.shopArt.clear();
     this.applySceneArt();
@@ -356,6 +358,8 @@ export class Game {
 
   /** 回街上，出生在該店門外，不會立即再進店（需再按 E）。 */
   leaveStore() {
+    // 任務也會呼叫返回街道；已在街上時不可套用出店座標，避免落入建築碰撞區。
+    if (this.sceneId === "street") return;
     const storeId = this.sceneId.startsWith("shop:") ? this.sceneId.slice(5) : null;
     const store = this.stores.find((s) => s.id === storeId);
     this.sceneId = "street";
@@ -574,6 +578,11 @@ export class Game {
   }
 
   private render() {
+    if (this.mealImageVersion !== mealImagesVersion()) {
+      this.mealImageVersion = mealImagesVersion();
+      this.shopArt.clear();
+      this.applySceneArt();
+    }
     const b = this.bctx;
     const cam = this.camera();
     const v = this.view;
@@ -782,11 +791,17 @@ function roundRect(d: CanvasRenderingContext2D, x: number, y: number, w: number,
 
 export type { Rect };
 
+/** 不在本團的店面換成可進店的 Store；門口位置與本團店家一樣由店面格決定。 */
+export function streetStoreAsStore(s: StreetStore): Store {
+  return { id: s.id, name: s.name, sceneId: `shop:${s.id}`, door: lotDoor(s.lotIndex), interiorAssetKey: `interior-${s.styleKey}`,
+    styleKey: s.styleKey, lotIndex: s.lotIndex };
+}
+
 function catalogSig(stores: Store[], meals: Meal[], streetStores: StreetStore[]) {
   return [
     ...stores.map((s) => `${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}:${s.resting ? 1 : 0}`),
     ...streetStores.map((s) => `street:${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}`),
-    ...meals.map((m) => `${m.id}:${m.name}:${m.priceTwd}:${m.imageAssetKey}`),
+    ...[...meals, ...streetStores.flatMap((s) => s.meals ?? [])].map((m) => `${m.id}:${m.name}:${m.priceTwd}:${m.imageAssetKey}`),
   ].join("|");
 }
 

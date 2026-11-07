@@ -1,3 +1,4 @@
+import { customImageUrl } from "../../shared/meal-images";
 import { DEFAULT_MEAL_ART } from "../../shared/town";
 import { ctxOf, makeCanvas, rect, ellipse, poly, sprite, type Ctx2D } from "./pixel";
 
@@ -225,7 +226,26 @@ const recipes: Record<string, (c: Ctx2D) => void> = {
 };
 const canvases = new Map<string, HTMLCanvasElement>();
 const urls = new Map<string, string>();
+let imageVersion = 0;
+export const mealImagesVersion = () => imageVersion;
 export function mealCanvas(key: string): HTMLCanvasElement {
+  const customUrl = customImageUrl(key);
+  if (customUrl) {
+    const cached = canvases.get(key);
+    if (cached) return cached;
+    const canvas = makeCanvas(MEAL_SIZE, MEAL_SIZE);
+    const context = ctxOf(canvas);
+    context.drawImage(mealCanvas(DEFAULT_MEAL_ART), 0, 0);
+    canvases.set(key, canvas);
+    const image = new Image();
+    image.onload = () => {
+      context.clearRect(0, 0, MEAL_SIZE, MEAL_SIZE);
+      context.drawImage(image, 0, 0, MEAL_SIZE, MEAL_SIZE);
+      imageVersion++;
+    };
+    image.src = customUrl;
+    return canvas;
+  }
   const k = Object.hasOwn(recipes, key) ? key : DEFAULT_MEAL_ART;
   const hit = canvases.get(k);
   if (hit) return hit;
@@ -237,6 +257,8 @@ export function mealCanvas(key: string): HTMLCanvasElement {
   return canvas;
 }
 export function mealImageUrl(key: string): string {
+  const customUrl = customImageUrl(key);
+  if (customUrl) return customUrl;
   const k = Object.hasOwn(recipes, key) ? key : DEFAULT_MEAL_ART;
   let url = urls.get(k);
   if (!url) {

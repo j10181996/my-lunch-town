@@ -44,6 +44,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
   const snapRef = useRef(snap);
   snapRef.current = snap;
   const [bagOpen, setBagOpen] = useState(false);
+  const [questOpen, setQuestOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   function announce(text: string) {
@@ -87,7 +88,10 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
   const [nearDoor, setNearDoor] = useState<Store | null>(null);
   const [scene, setScene] = useState<SceneId>("street");
   const [nearMealId, setNearMealId] = useState<string | null>(null);
-  useTouchOrdering(canvasRef, gameRef, scene, canOrder && controlsEnabled, onPickProduct);
+  const inShop = scene !== "street";
+  /** 不在本團的店（#78）：可以進店看陳列台，但不能點餐。 */
+  const viewOnly = inShop && !snap.catalog.stores.some((s) => s.sceneId === scene);
+  useTouchOrdering(canvasRef, gameRef, scene, canOrder && controlsEnabled && !viewOnly, onPickProduct);
   const cbRef = useRef({ onSceneChange, onMove, onPickProduct, onNearProduct });
   cbRef.current = { onSceneChange, onMove, onPickProduct, onNearProduct };
 
@@ -104,7 +108,9 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
       onNearClerk: setNearClerk,
       clerkLine: (storeId, talk) => {
         const s = snapRef.current;
-        const meals = s.catalog.meals.filter((m) => m.storeId === storeId);
+        const streetStore = s.catalog.stores.some((store) => store.id === storeId)
+          ? undefined : s.streetStores?.find((store) => store.id === storeId);
+        const meals = streetStore ? streetStore.meals ?? [] : s.catalog.meals.filter((m) => m.storeId === storeId);
         return shopkeeperLine({
           meals: meals.filter((m) => m.available),
           ordered: s.myItems.flatMap((item) => {
@@ -113,7 +119,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           }),
           roomClosed: s.room.status === "closed",
           deadlineAt: s.catalog.stores.find((store) => store.id === storeId)?.orderDeadlineAt ?? null,
-          solo, talk, now: Date.now(),
+          solo, notInRoom: !!streetStore, talk, now: Date.now(),
         });
       },
       onCollect: (id) => {
@@ -128,7 +134,8 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
         setNearMealId(id);
         cbRef.current.onNearProduct(id);
       },
-      onPickProduct: (id) => cbRef.current.onPickProduct(id),
+      // 只有本團的餐點能加點；不在本團的店按 Enter 不送出。
+      onPickProduct: (id) => { if (snapRef.current.catalog.meals.some((m) => m.id === id)) cbRef.current.onPickProduct(id); },
     });
     gameRef.current = game;
     onReady(game);
@@ -196,39 +203,49 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     gameRef.current?.setCollectibles(collectibles(snap.room.id, snap.me.id).filter((item) => !collection.items.includes(item.id)));
   }, [collection, social, snap.room.id, snap.me.id]);
 
-  const inShop = scene !== "street";
-  const nearMeal = inShop && nearMealId ? snap.catalog.meals.find((m) => m.id === nearMealId) : undefined;
+  const nearMeal = inShop && nearMealId
+    ? [...snap.catalog.meals, ...(snap.streetStores ?? []).flatMap((s) => s.meals ?? [])].find((m) => m.id === nearMealId)
+    : undefined;
 
   return (
     <div className="stage" ref={wrapRef}>
       <VirtualJoystick disabled={!controlsEnabled} scene={scene} onMove={(x, y) => gameRef.current?.setTouchInput(x, y)} />
-      <div className="touch-hint">{inShop ? (solo ? "逛逛陳列台，喜歡就用這家開團" : "點餐點圖案 ＋1，也可展開菜單") : "拖動搖桿逛街，或在面板選店家"}</div>
+      <div className="touch-hint">{inShop ? (solo ? "逛逛陳列台，喜歡就用這家開團" : viewOnly ? "這家不在本團，只能看菜單" : "點餐點圖案 ＋1，也可展開菜單") : "拖動搖桿逛街，或在面板選店家"}</div>
       <canvas ref={canvasRef} className="pixel" aria-label="午餐小鎮街景，用方向鍵或 WASD 移動角色" />
-      <NewcomerQuest achievements={collection.achievements} onGuide={(step) => {
-        setBagOpen(false);
-        if (step === "friend") { setLifeEnabled(true); gameRef.current?.leaveStore(); }
-        else { const store = snap.catalog.stores.find((s) => snap.catalog.meals.some((m) => m.storeId === s.id && m.available));
-          if (store) gameRef.current?.enterStore(store.id); }
-      }} />
-      <div className="town-controls">
-        <div className="emote-bar" role="group" aria-label="小鎮表情">
-          {!solo && EMOTES.map((emote) => <button key={emote.id} className="emote-btn" title={emote.label}
-            aria-label={emote.label} disabled={!online || !social || emoteBusy || socialBusy} onClick={() => void sendEmote(emote.id)}>{emote.icon}</button>)}
-          <button className="emote-btn bag-toggle" aria-label="背包與小鎮設定" aria-expanded={bagOpen} onClick={() => setBagOpen(!bagOpen)}>🎒</button>
+      <div className="town-tools">
+        <NewcomerQuest achievements={collection.achievements} open={questOpen} onOpenChange={(open) => {
+          setQuestOpen(open);
+          if (open) setBagOpen(false);
+        }} onGuide={(step) => {
+          setBagOpen(false);
+          if (step === "friend") { setLifeEnabled(true); gameRef.current?.leaveStore(); }
+          else { const store = snap.catalog.stores.find((s) => snap.catalog.meals.some((m) => m.storeId === s.id && m.available));
+            if (store) gameRef.current?.enterStore(store.id); }
+        }} />
+        <div className="town-inventory">
+          <button className="town-tool-toggle bag-toggle" aria-label="背包與小鎮設定" aria-expanded={bagOpen} aria-controls="town-bag" onClick={() => {
+            setBagOpen(!bagOpen); setQuestOpen(false);
+          }}><span>🎒 我的背包</span><small>收藏・換裝 {bagOpen ? "▲" : "▼"}</small></button>
+          {bagOpen && <section id="town-bag" className="town-bag" aria-label="背包與小鎮設定">
+            <div className="bag-heading"><strong>🎒 我的午休收藏</strong><button aria-label="關閉背包" onClick={() => setBagOpen(false)}>×</button></div>
+            <p>今日小物 {collection.items.filter((id) => collectibles(snap.room.id, snap.me.id).some((item) => item.id === id)).length} / 5 · 走近發光小物就能撿起</p>
+            <div className="bag-items" aria-label="已收集的小物">{collectibles(snap.room.id, snap.me.id).map((item) => <span key={item.id} title={collection.items.includes(item.id) ? "已收集" : "尚未找到"} className={collection.items.includes(item.id) ? "found" : "missing"}>{collection.items.includes(item.id) ? item.icon : "？"}</span>)}</div>
+            <strong>換個造型</strong>
+            <div className="accessory-list" role="group" aria-label="角色配件">{ACCESSORIES.map((a) => <button key={a.id} aria-pressed={collection.accessory === a.id} onClick={() => updateCollection({ ...collectionRef.current, accessory: a.id })}>{a.icon} {a.label}</button>)}</div>
+            <strong>小鎮成就 {collection.achievements.length} / {ACHIEVEMENTS.length}</strong>
+            <div className="achievement-list">{ACHIEVEMENTS.map((a) => <div key={a.id} className={collection.achievements.includes(a.id) ? "unlocked" : "locked"} title={a.description}>{a.icon} {a.name}<span>{collection.achievements.includes(a.id) ? "✓" : a.description}</span></div>)}</div>
+            <label><input type="checkbox" checked={lifeEnabled} onChange={(e) => setLifeEnabled(e.target.checked)} /> 顯示村民與小動物</label>
+            {!solo && <label><input type="checkbox" checked={social} disabled={!online || socialBusy} onChange={() => void toggleSocial()} /> 社交表情與點餐泡泡</label>}
+            <label><input type="checkbox" checked={collection.badge} onChange={(e) => updateCollection({ ...collectionRef.current, badge: e.target.checked })} /> 顯示成就徽章</label>
+          </section>}
         </div>
-        {bagOpen && <section className="town-bag" aria-label="背包與小鎮設定">
-          <div className="bag-heading"><strong>🎒 我的午休收藏</strong><button aria-label="關閉背包" onClick={() => setBagOpen(false)}>×</button></div>
-          <p>今日小物 {collection.items.filter((id) => collectibles(snap.room.id, snap.me.id).some((item) => item.id === id)).length} / 5 · 走近發光小物就能撿起</p>
-          <div className="bag-items" aria-label="已收集的小物">{collectibles(snap.room.id, snap.me.id).map((item) => <span key={item.id} title={collection.items.includes(item.id) ? "已收集" : "尚未找到"} className={collection.items.includes(item.id) ? "found" : "missing"}>{collection.items.includes(item.id) ? item.icon : "？"}</span>)}</div>
-          <strong>換個造型</strong>
-          <div className="accessory-list" role="group" aria-label="角色配件">{ACCESSORIES.map((a) => <button key={a.id} aria-pressed={collection.accessory === a.id} onClick={() => updateCollection({ ...collectionRef.current, accessory: a.id })}>{a.icon} {a.label}</button>)}</div>
-          <strong>小鎮成就 {collection.achievements.length} / {ACHIEVEMENTS.length}</strong>
-          <div className="achievement-list">{ACHIEVEMENTS.map((a) => <div key={a.id} className={collection.achievements.includes(a.id) ? "unlocked" : "locked"} title={a.description}>{a.icon} {a.name}<span>{collection.achievements.includes(a.id) ? "✓" : a.description}</span></div>)}</div>
-          <label><input type="checkbox" checked={lifeEnabled} onChange={(e) => setLifeEnabled(e.target.checked)} /> 顯示村民與小動物</label>
-          {!solo && <label><input type="checkbox" checked={social} disabled={!online || socialBusy} onChange={() => void toggleSocial()} /> 社交表情與點餐泡泡</label>}
-          <label><input type="checkbox" checked={collection.badge} onChange={(e) => updateCollection({ ...collectionRef.current, badge: e.target.checked })} /> 顯示成就徽章</label>
-        </section>}
       </div>
+      {!solo && <div className="town-controls">
+        <div className="emote-bar" role="group" aria-label="小鎮表情">
+          {EMOTES.map((emote) => <button key={emote.id} className="emote-btn" title={emote.label}
+            aria-label={emote.label} disabled={!online || !social || emoteBusy || socialBusy} onClick={() => void sendEmote(emote.id)}>{emote.icon}</button>)}
+        </div>
+      </div>}
       {notice && <div className="town-notice" role="status">{notice}</div>}
       {inShop && social && !solo && <div className="shop-company" aria-live="polite">{(() => {
         const ids = new Set(presence.players.filter((p) => p.sceneId === scene && p.memberId !== snap.me.id).map((p) => p.memberId));
@@ -259,7 +276,10 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           <span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>喜歡「{nearMeal.name}」NT${nearMeal.priceTwd}？用這家開團
         </button>
       )}
-      {nearMeal && !solo && (
+      {nearMeal && !solo && viewOnly && (
+        <button className="btn primary stage-action" disabled>「{nearMeal.name}」NT${nearMeal.priceTwd}・不在本團，不能點餐</button>
+      )}
+      {nearMeal && !solo && !viewOnly && (
         <button
           className="btn primary stage-action"
           disabled={!canOrder}
@@ -268,7 +288,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           {canOrder ? <><span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>加一份「{nearMeal.name}」NT${nearMeal.priceTwd}</> : `「${nearMeal.name}」目前不能點餐`}
         </button>
       )}
-      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
+      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : viewOnly ? "這家不在本團，只能看菜單・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
     </div>
   );
 }

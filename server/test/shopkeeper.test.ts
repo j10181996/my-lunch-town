@@ -47,6 +47,13 @@ describe("店主台詞", () => {
     expect(said.join()).not.toMatch(/收單|馬上準備|按 Enter/);
   });
 
+  it("不在本團的店：推薦但不叫人點餐，也不提接單截止", () => {
+    const said = lines({ notInRoom: true, deadlineAt: NOON + 60000 }, 4);
+    expect(said).toContain("這次沒揪到我們家，下次見！");
+    expect(said).toContain("推薦「雞腿便當」，NT$120！");
+    expect(said.join()).not.toMatch(/不接單|按 Enter/);
+  });
+
   it("沒有供應的餐點時不推薦", () => {
     expect(lines({ meals: [] }, 3)).toContain("今天的菜還在準備中喔。");
   });

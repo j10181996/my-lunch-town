@@ -1,3 +1,4 @@
+import { MEAL_IMAGES_SCHEMA } from "../server/images/schema";
 import { migrateTaichungExpansion } from "../server/catalog/taichung-expansion";
 import { PARTY_SCHEMA } from "../server/rooms/party-schema";
 import { migrateStoreHours } from "../server/store-hours-schema";
@@ -25,6 +26,7 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
   const raw = new SQL.Database(bytes ? new Uint8Array(bytes) : seedBytes);
   raw.exec("PRAGMA foreign_keys = ON");
   raw.exec(SOCIAL_SCHEMA);
+  raw.exec(MEAL_IMAGES_SCHEMA);
   raw.exec(PARTY_SCHEMA);
   // Match node:sqlite's small synchronous surface used by the domain modules.
   // Every statement is freed, including reads returning no rows.
