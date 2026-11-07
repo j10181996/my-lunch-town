@@ -24,7 +24,7 @@
   .mobile-panel-toggle { display: block; border: 0; border-top: 2px solid var(--line); border-bottom: 2px solid var(--line); border-radius: 0; min-height: 44px; padding: 8px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 800; cursor: pointer; }
   .room-main.panel-collapsed { grid-template-rows: minmax(220px, 1fr) auto; }
   .room-main.panel-collapsed > .side { display: none; }
-  .side { overscroll-behavior-y: contain; padding: 12px; }
+  .side { overscroll-behavior-y: contain; --side-pad: 12px; }
   .side .btn.plus, .side .qty-ctrl .btn { min-width: 44px; min-height: 44px; }
   .stage .back { min-height: 44px; }
 }
