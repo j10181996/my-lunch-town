@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { RoomSnapshot } from "../../shared/contracts";
 import { roomGateway } from "../adapters/http";
 import { errorText } from "../api";
+import { OWNER_REMIND_MS } from "../game/owner-calls";
 
 const MIN = 60_000;
-/** 截止前多久提醒團員。 */
-export const REMIND_BEFORE_MS = 5 * MIN;
+/** 截止前多久提醒團員；與小鎮裡團主喊話同一個時間點。 */
+export const REMIND_BEFORE_MS = OWNER_REMIND_MS;
 const EXPIRE_RETRY_MS = 3000;
 
 export function useNow(intervalMs = 1000) {

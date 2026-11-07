@@ -221,7 +221,7 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
     streetStores: streetStores(db, catalog),
     room: toRoom(room),
     me,
-    members: listMembers(db, roomId).map((m) => ({ id: m.id, nickname: m.nickname, avatarId: m.avatarId })),
+    members: listMembers(db, roomId).map((m) => ({ id: m.id, nickname: m.nickname, avatarId: m.avatarId, role: m.role })),
     catalog,
     myItems,
     myTotalTwd: mine.totalTwd,
