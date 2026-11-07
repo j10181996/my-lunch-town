@@ -3,6 +3,7 @@ import * as sitesLive from "./sites-live";
 import { io, type Socket } from "socket.io-client";
 import type {
   CreateStoreResult,
+  GeocodeResult,
   MoveInput,
   MyRoomSummary,
   PaymentInfo,
@@ -99,6 +100,7 @@ export const storeGateway: StoreAdminGateway = {
   uploadImage: (id, pixels) => request("POST", `/api/stores/${id}/images`, { pixels }),
   setHours: (id, hours) => request<StoreProfile>("PUT", `/api/stores/${id}/hours`, hours),
   setDelivery: (id, rules) => request<StoreProfile>("PUT", `/api/stores/${id}/delivery`, rules),
+  setLocation: (id, location, address) => request<StoreProfile>("PUT", `/api/stores/${id}/location`, { location, address }),
   listOrders: (id) => request<StoreOrder[]>("GET", `/api/stores/${id}/orders`),
   updateOrderStatus: (id, orderId, input) =>
     request<StoreOrder>("POST", `/api/stores/${id}/orders/${orderId}/status`, input),
@@ -122,4 +124,9 @@ export const storeGateway: StoreAdminGateway = {
   updateMeal: (id, mealId, input) => request<StoreProfile>("PATCH", `/api/stores/${id}/meals/${mealId}`, input),
   moveMeal: (id, mealId, direction) => request<StoreProfile>("POST", `/api/stores/${id}/meals/${mealId}/move`, { direction }),
   deleteMeal: (id, mealId) => request<StoreProfile>("DELETE", `/api/stores/${id}/meals/${mealId}`),
+};
+
+/** 地址推算座標（伺服器轉送 OpenStreetMap Nominatim）。 */
+export const geoGateway = {
+  geocode: (address: string) => request<GeocodeResult>("GET", `/api/geocode/${encodeURIComponent(address.trim())}`),
 };

@@ -5,6 +5,7 @@ import { myRooms } from "./rooms/history";
 import { listManagementStores } from "./stores/store-list";
 import { getTownCatalog } from "./stores/town-catalog";
 import { setHours } from "./stores/stores";
+import { geocodeAddress } from "./geocode";
 import { sendEmote, setSocial } from "./rooms/social";
 import type { FastifyInstance } from "fastify";
 import type { Ctx } from "./context";
@@ -21,6 +22,7 @@ import {
   myStores,
   setStatus,
   setDelivery,
+  setLocation,
   updateMeal,
   updateStore,
 } from "./stores/stores";
@@ -86,6 +88,11 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/delivery", async (req) =>
     setDelivery(db, req.sid, req.params.storeId, req.body),
   );
+  app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/location", async (req) =>
+    setLocation(db, req.sid, req.params.storeId, req.body),
+  );
+  // GET：Worker 不寫回快照，衝突重試也不會重複打外部服務。
+  app.get<{ Params: { address: string } }>("/api/geocode/:address", async (req) => geocodeAddress(req.params.address));
   app.get<{ Params: { storeId: string } }>("/api/stores/:storeId/orders", async (req) =>
     listStoreOrders(db, req.sid, req.params.storeId),
   );

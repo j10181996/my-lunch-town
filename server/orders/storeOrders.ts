@@ -1,9 +1,9 @@
 import type { RoomStoreOrder, StoreOrder, StoreOrderStatus, UpdateStoreOrderInput } from "../../shared/contracts";
-import { distanceKm, evaluateDelivery, fulfillmentOf } from "../../shared/delivery";
+import { evaluateStoreDelivery, fulfillmentOf, storeDistanceKm } from "../../shared/delivery";
 import { computeStoreTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
 import type { Ctx } from "../context";
 import { AppError, err, withWriteTx, type Db } from "../db";
-import { bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems } from "../rooms/rooms";
+import { bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems, toRoom } from "../rooms/rooms";
 import { requireOwner } from "../stores/stores";
 import { oneOf, randomId, text } from "../util";
 
@@ -54,6 +54,7 @@ function toOrder(r: OrderRow): StoreOrder {
 /** 僅由 closeRoom 在 open → closed 的同一寫入交易內呼叫。 */
 export function createStoreOrders(db: Db, roomId: string, ownerNickname: string): string[] {
   const room = getRoomRow(db, roomId);
+  const place = toRoom(room);
   const catalog = loadCatalog(db, room);
   const items = loadItems(db, roomId);
   const members = listMembers(db, roomId);
@@ -66,10 +67,8 @@ export function createStoreOrders(db: Db, roomId: string, ownerNickname: string)
     VALUES (?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const store of totals) {
     const frozen = catalog.stores.find((s) => s.id === store.storeId)!;
-    const km = room.delivery_x === null
-      ? null
-      : distanceKm({ x: room.delivery_x, y: room.delivery_y! }, frozen.door);
-    const delivery = evaluateDelivery(frozen.delivery, km, store.totalTwd);
+    const km = storeDistanceKm(place, frozen);
+    const delivery = evaluateStoreDelivery(place, frozen, store.totalTwd);
     const mealIds = new Set(store.meals.map((m) => m.mealId));
     const people = members.flatMap((member) => {
       const mine = sortItemsByCatalog(

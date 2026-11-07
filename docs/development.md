@@ -102,7 +102,7 @@ API 錯誤一律回 `{ code, message }`，`code` 是 `shared/contracts.ts` 的 `
 
 團內狀態由 `web/state/useRoom.ts` 管理。snapshot 以伺服器為準，revision 比目前舊的回應直接丟棄；收到 `room:changed` 或輪詢看到較新 revision 時重抓。+1/-1 送出期間記為 pending 並存進 sessionStorage，同一餐點一次只允許一筆；結果未知時保留 pending，重連後以同一個 requestId 重送釐清。
 
-遊戲畫面是 Canvas，邏輯在 `web/game/game.ts`，React 外殼是 `web/game/GameView.tsx`。素材全部以程式繪製（`web/art/`），以邏輯像素繪製後整數倍放大；場景尺寸與座標換算定義在 `shared/town.ts`，對外座標一律正規化為 0..1。`art-preview.html` 可在 Vite 開發伺服器下預覽素材（`http://localhost:5173/art-preview.html`）。
+遊戲畫面是 Canvas，邏輯在 `web/game/game.ts`，React 外殼是 `web/game/GameView.tsx`。素材全部以程式繪製（`web/art/`），以邏輯像素繪製後整數倍放大；場景尺寸與座標換算定義在 `shared/town.ts`，對外座標一律正規化為 0..1。外送距離不用遊戲座標：送餐位置與店家位置是真實經緯度（`GeoPoint`），以 `shared/geo.ts` 的 haversine 算直線距離；只有升級前開的舊團仍以街區座標 `deliveryPoint` 換算（`shared/delivery.ts` 的 `storeDistanceKm`）。座標由地址推算：前端只輸入地址，`GET /api/geocode/:address`（`server/geocode.ts`）在伺服器轉送 OpenStreetMap Nominatim，遵守其使用規範（識別用 User-Agent、全域每秒最多 1 次、快取、不做邊打字邊查），台灣地址解析與查詢順序在 `shared/tw-address.ts`。用 GET 是因為 Worker 的非 GET 請求會寫回快照、衝突時整段重試，會重複打外部服務。測試一律用假的 fetcher，不連外。`art-preview.html` 可在 Vite 開發伺服器下預覽素材（`http://localhost:5173/art-preview.html`）。
 
 NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；範圍與簡化之處見 [M4 黑客松展示交接](m4-demo-handoff.md)。
 
@@ -120,7 +120,7 @@ NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；�
 
 業務表的 schema 在 `server/db.ts` 的 `SCHEMA` 字串與 `migrate*` 函式，不在 Drizzle。Drizzle 的 `db/schema.ts` 只管 D1 外層的 `app_state` 與 `live_presence`。
 
-Node 的 `openDb` 每次啟動都會跑 `migrateDelivery`、`migratePayment`，但 Worker 的 `openSnapshot` 不會；它只套用 `SOCIAL_SCHEMA`、`PARTY_SCHEMA`、`migrateStoreHours`、`migrateDeadline` 與 `migrateDeliveryAddress`。已部署的 D1 image 是舊版建立的，不會自動得到新欄位；`worker/seed.bin` 只在 D1 尚未初始化時使用。所以：
+Node 的 `openDb` 每次啟動都會跑 `migrateDelivery`、`migratePayment`，但 Worker 的 `openSnapshot` 不會；它只套用 `SOCIAL_SCHEMA`、`PARTY_SCHEMA`、`migrateStoreHours`、`migrateTaichungExpansion`、`migrateDeadline`、`migrateDeliveryAddress` 與 `migrateGeoLocation`。已部署的 D1 image 是舊版建立的，不會自動得到新欄位；`worker/seed.bin` 只在 D1 尚未初始化時使用。所以：
 
 - 新表或新欄位要寫成可重複執行的遷移（`CREATE TABLE IF NOT EXISTS`、先查 `PRAGMA table_info` 再 `ALTER TABLE`），並確保 `worker/db.ts` 的 `openSnapshot` 也會套用。做法是把遷移獨立成一個檔案，由 `openDb` 與 `openSnapshot` 都呼叫。新表可參考 `server/rooms/social-schema.ts`（一份 `CREATE TABLE IF NOT EXISTS` 常數）；新欄位可參考 `server/store-hours-schema.ts` 的 `migrateStoreHours`（先查 `PRAGMA table_info`，缺欄才在交易內 `ALTER TABLE`）。Worker 下一筆成功寫入時，升級後的 image 會隨交易一起寫回 D1。
 - 遷移不得覆蓋或回填既有資料，除非有明確需求。

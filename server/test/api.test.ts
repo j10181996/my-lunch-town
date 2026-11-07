@@ -1,9 +1,10 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { DELIVERY_ADDRESS_MAX, type RoomSnapshot } from "../../shared/contracts";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app";
 import { distanceKm } from "../../shared/delivery";
+import { haversineKm } from "../../shared/geo";
 import { lotDoor } from "../../shared/town";
 import { createRoom } from "../rooms/rooms";
 import { changeQuantity, closeRoom } from "../orders/orders";
@@ -762,6 +763,100 @@ describe("外送設定、凍結與收單", () => {
     for (const deliveryAddress of ["B 棟", undefined]) {
       expect(await owner.post("/api/rooms", { ...body, deliveryAddress }))
         .toMatchObject({ status: 409, body: { code: "REQUEST_ID_CONFLICT" } });
+    }
+  });
+});
+
+describe("真實經緯度外送", () => {
+  const rules = { enabled: true, tiers: [{ maxKm: 1, minTwd: 0 }] };
+  // 虛構種子：阿福 24.15,120.65；大樹 24.155,120.66；綠芽 24.16,120.67
+  const af = { lat: 24.15, lng: 120.65 };
+  const tree = { lat: 24.155, lng: 120.66 };
+
+  it("店家位置：擁有者可設定與清除，其他人 403，非法座標 400", async () => {
+    const shop = client();
+    await shop.post("/api/stores/claim", { manageKey: "demo-store-af" });
+    expect((await shop.get("/api/stores/store-af")).body.location).toEqual(af);
+    expect(await client().put("/api/stores/store-af/location", { location: af }))
+      .toMatchObject({ status: 403, body: { code: "NOT_ALLOWED" } });
+    for (const body of [{}, { location: { lat: 91, lng: 0 } }, { location: "24,120" }]) {
+      expect(await shop.put("/api/stores/store-af/location", body))
+        .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+    }
+    expect((await shop.put("/api/stores/store-af/location", { location: { lat: 24.1234567, lng: 120.7 } })).body.location)
+      .toEqual({ lat: 24.123457, lng: 120.7 });
+    expect((await shop.put("/api/stores/store-af/location", { location: null })).body.location).toBeNull();
+    // 帶地址時一併更新店家地址；地址格式錯誤整筆不寫入
+    expect((await shop.put("/api/stores/store-af/location", { location: af, address: " 臺中市西區昇平街132號 " })).body)
+      .toMatchObject({ location: af, address: "臺中市西區昇平街132號" });
+    expect(await shop.put("/api/stores/store-af/location", { location: tree, address: "短" }))
+      .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+    expect((await shop.get("/api/stores/store-af")).body).toMatchObject({ location: af, address: "臺中市西區昇平街132號" });
+  });
+
+  it("地址查座標路由：GET、路徑帶編碼地址，查不到回 400", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const street = new URL(url).searchParams.get("street");
+      const body = street === "132號 昇平街"
+        ? [{ lat: "24.1456369", lon: "120.6600005", display_name: "132號, 昇平街, 西區, 臺中市, 臺灣", address: { house_number: "132號" } }]
+        : [];
+      return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const c = client();
+      expect(await c.get(`/api/geocode/${encodeURIComponent("臺中市西區昇平街132號")}`)).toMatchObject({
+        status: 200, body: { location: { lat: 24.145637, lng: 120.660001 }, precision: "house" },
+      });
+      expect(await c.get(`/api/geocode/${encodeURIComponent("臺中市西區查無此路9號")}`))
+        .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+      expect(fetchMock.mock.calls.every(([url]) => String(url).startsWith("https://nominatim.openstreetmap.org/search"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }, 15_000);
+
+  it("開團凍結店家位置；收單依真實距離，店家未設位置則自取", async () => {
+    const shop = client();
+    for (const id of ["af", "tree", "green"]) {
+      await shop.post("/api/stores/claim", { manageKey: `demo-store-${id}` });
+      await shop.put(`/api/stores/store-${id}/delivery`, rules);
+    }
+    await shop.put("/api/stores/store-green/location", { location: null });
+    const owner = client();
+    const { snapshot } = (await owner.post("/api/rooms", {
+      title: "經緯度", nickname: "阿凱", requestId: rid(), deliveryLocation: af, deliveryAddress: "A 棟",
+      storeIds: SAMPLE_STORE_IDS,
+    })).body;
+    const roomId = snapshot.room.id;
+    expect(snapshot.room).toMatchObject({ deliveryLocation: af, deliveryPoint: null, deliveryAddress: "A 棟" });
+    expect(snapshot.catalog.stores.map((s: { location: unknown }) => s.location)).toEqual([af, tree, null]);
+    // 開團後店家搬家不影響這團
+    await shop.put("/api/stores/store-af/location", { location: { lat: 25, lng: 121 } });
+    for (const meal of ["meal-af-chicken", "meal-tree-dry", "meal-green-tofu"]) await plus(owner, roomId, meal);
+    const closed = (await owner.post(`/api/rooms/${roomId}/close`, { requestId: rid() })).body;
+    expect(closed.storeOrders).toMatchObject([
+      { storeId: "store-af", fulfillment: "delivery", distanceKm: 0, deliveryMinTwd: 0 },
+      { storeId: "store-tree", fulfillment: "pickup", distanceKm: haversineKm(af, tree), deliveryMinTwd: null },
+      { storeId: "store-green", fulfillment: "pickup", distanceKm: null, deliveryMinTwd: null },
+    ]);
+    expect(haversineKm(af, tree)).toBeGreaterThan(1);
+    expect((await shop.get("/api/stores/store-af/orders")).body[0]).toMatchObject({ deliveryAddress: "A 棟" });
+  });
+
+  it("開團驗證位置、不可同時帶街區座標；去重包含位置", async () => {
+    const owner = client();
+    const body = { title: "午餐", nickname: "阿凱", requestId: rid(), deliveryLocation: af, storeIds: SAMPLE_STORE_IDS };
+    const first = await owner.post("/api/rooms", body);
+    expect(first.status).toBe(200);
+    expect((await owner.post("/api/rooms", body)).body).toEqual(first.body);
+    for (const changed of [{ deliveryLocation: tree }, { deliveryLocation: undefined }, { deliveryLocation: undefined, deliveryPoint: { x: 0, y: 0 } }]) {
+      expect(await owner.post("/api/rooms", { ...body, ...changed }))
+        .toMatchObject({ status: 409, body: { code: "REQUEST_ID_CONFLICT" } });
+    }
+    for (const bad of [{ deliveryLocation: { lat: 100, lng: 0 } }, { deliveryLocation: null }, { deliveryPoint: { x: 0, y: 0 } }]) {
+      expect(await owner.post("/api/rooms", { ...body, requestId: rid(), ...bad }))
+        .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
     }
   });
 });

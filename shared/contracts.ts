@@ -306,6 +306,29 @@ export interface StoreAdminGateway {
   setDelivery(storeId: Id, rules: DeliveryRules): Promise<StoreProfile>;
 }
 
+/**
+ * 真實經緯度（WGS84）。新團以送餐位置與店家位置的球面直線距離判斷外送；
+ * 舊團只有遊戲街區座標 deliveryPoint，沿用舊的像素換算直到收單。
+ */
+export interface GeoPoint { lat: number; lng: number }
+export interface Room { deliveryLocation?: GeoPoint | null }
+export interface CreateRoomInput { deliveryLocation?: GeoPoint }
+/** 開團時與外送規則一起凍結。 */
+export interface Store { location?: GeoPoint | null }
+export interface StoreProfile { location: GeoPoint | null }
+/** address 選填：一併更新店家地址（地址推算座標時使用）。 */
+export interface SetStoreLocationInput { location: GeoPoint | null; address?: string }
+export interface StoreAdminGateway {
+  setLocation(storeId: Id, location: GeoPoint | null, address?: string): Promise<StoreProfile>;
+}
+/** 地址推算座標的結果。house：門牌吻合；street：只找到路段或巷弄；area：只找到大略區域。 */
+export interface GeocodeResult {
+  location: GeoPoint;
+  precision: "house" | "street" | "area";
+  /** 地圖資料中的完整地名，給使用者確認 */
+  label: string;
+}
+
 export interface OwnerSummaryPerson {
   memberId: Id;
   nickname: string;
@@ -420,6 +443,7 @@ export interface MyRoomSummary {
   nickname: string;
   avatarId: string;
   deliveryPoint: Point | null;
+  deliveryLocation: GeoPoint | null;
   /** 團員本來就看得到送餐地址，「再揪一次」一併沿用。 */
   deliveryAddress: string | null;
   stores: Array<{ id: Id; name: string }>;

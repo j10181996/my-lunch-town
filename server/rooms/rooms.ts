@@ -13,7 +13,8 @@ import type {
   StreetStore,
   PaymentInfo,
 } from "../../shared/contracts";
-import { DELIVERY_ADDRESS_MAX } from "../../shared/contracts";
+import { DELIVERY_ADDRESS_MAX, type GeoPoint } from "../../shared/contracts";
+import { validateGeoPoint } from "../../shared/geo";
 import { computeStoreTotals, grandTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
 import { AVATAR_IDS, LOTS, lotDoor } from "../../shared/town";
 import type { Ctx } from "../context";
@@ -35,6 +36,8 @@ interface RoomRow {
   revision: number;
   delivery_x: number | null;
   delivery_y: number | null;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
   delivery_address: string | null;
   deadline_at?: number | null;
 }
@@ -62,6 +65,7 @@ export function toRoom(r: RoomRow): Room {
     catalogVersion: r.catalog_version,
     revision: r.revision,
     deliveryPoint: r.delivery_x === null ? null : { x: r.delivery_x, y: r.delivery_y! },
+    deliveryLocation: r.delivery_lat == null ? null : { lat: r.delivery_lat, lng: r.delivery_lng! },
     deliveryAddress: r.delivery_address ?? null,
     deadlineAt: r.deadline_at ?? null,
   };
@@ -110,6 +114,8 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
       door_x: number;
       door_y: number;
       delivery_json: string | null;
+      lat: number | null;
+      lng: number | null;
       hours_json?: string | null;
       order_deadline_at?: number | null;
     }>;
@@ -133,6 +139,7 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
       lotIndex: s.lot_index,
       orderDeadlineAt: s.order_deadline_at ?? null,
       delivery: s.delivery_json === null ? null : JSON.parse(s.delivery_json),
+      location: s.lat == null ? null : { lat: s.lat, lng: s.lng! },
     })),
     meals: meals.map((m) => ({
       id: m.meal_id,
@@ -291,12 +298,19 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
     || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1)) {
     throw err.invalid("送餐地點座標須在 0 至 1 之間");
   }
+  // 新版前端送真實經緯度；deliveryPoint 只為了讓舊版前端的請求與重試仍成立。
+  let location: GeoPoint | null = null;
+  if (input?.deliveryLocation !== undefined) {
+    try { location = validateGeoPoint(input.deliveryLocation, "送餐位置"); } catch (e) { throw err.invalid((e as Error).message); }
+  }
+  if (location && point) throw err.invalid("送餐位置只能擇一提供");
   const address = parseDeliveryAddress(input?.deliveryAddress);
-  if (address && !point) throw err.invalid("請先在地圖選送餐地點，再填送餐地址");
+  if (address && !point && !location) throw err.invalid("請先設定送餐位置，再填送餐地址");
   // 沒選地點時保留上一版 digest，讓升級前的成功請求仍可重試。
   const avatarId = typeof input?.avatarId === "string" && AVATAR_IDS.includes(input.avatarId) ? input.avatarId : null;
-  // 沒選角色時沿用舊 digest，讓舊版前端的重試請求仍然成立。
-  const pointDigest = point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
+  // 沒選角色時沿用舊 digest，讓舊版前端的重試請求仍然成立。經緯度用物件，與街區座標的陣列區隔。
+  const pointDigest = location ? JSON.stringify([title, nickname, { lat: location.lat, lng: location.lng }])
+    : point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
   // 沒填地址時沿用舊 digest；物件格式避免與角色那層的陣列格式撞在一起。
   const baseDigest = address ? JSON.stringify({ base: pointDigest, address }) : pointDigest;
   const avatarDigest = avatarId ? JSON.stringify([baseDigest, avatarId]) : baseDigest;
@@ -334,6 +348,8 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
         lot_index: number;
         is_sample: number;
         delivery_json: string | null;
+        lat: number | null;
+        lng: number | null;
         hours_json: string | null;
         status: string;
         has_meals: number;
@@ -349,18 +365,21 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
     const isSample = stores.every((s) => s.is_sample === 1) ? 1 : 0;
     db.prepare(
       `INSERT INTO rooms
-        (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y, deadline_at, delivery_address)
-        VALUES (?, ?, 'open', ?, ?, 1, ?, ?, ?, ?, ?)`,
-    ).run(id, title, `room:${id}`, isSample, Date.now(), point?.x ?? null, point?.y ?? null, deadlineAt, address);
+        (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y, deadline_at, delivery_address,
+         delivery_lat, delivery_lng)
+        VALUES (?, ?, 'open', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, title, `room:${id}`, isSample, Date.now(), point?.x ?? null, point?.y ?? null, deadlineAt, address,
+      location?.lat ?? null, location?.lng ?? null);
 
     const insStore = db.prepare(
       `INSERT INTO room_stores
-        (room_id, store_id, name, style_key, lot_index, door_x, door_y, sort_order, delivery_json, order_deadline_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (room_id, store_id, name, style_key, lot_index, door_x, door_y, sort_order, delivery_json, order_deadline_at, lat, lng)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     stores.forEach((s, i) => {
       const door = lotDoor(s.lot_index);
-      insStore.run(id, s.id, s.name, s.style_key, s.lot_index, door.x, door.y, i, s.delivery_json, storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).deadline);
+      insStore.run(id, s.id, s.name, s.style_key, s.lot_index, door.x, door.y, i, s.delivery_json,
+        storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).deadline, s.lat ?? null, s.lng ?? null);
     });
     db.prepare(
       `INSERT INTO room_meals (room_id, meal_id, store_id, name, price_twd, image_key, available, tags_json, sort_order)

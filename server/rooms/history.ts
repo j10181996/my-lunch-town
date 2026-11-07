@@ -12,7 +12,7 @@ export const MY_ROOMS_LIMIT = 30;
 export function myRooms(db: Db, sessionId: string): MyRoomSummary[] {
   const rows = db.prepare(
     `SELECT r.id, r.title, r.status, r.created_at, r.closed_at, r.delivery_x, r.delivery_y, r.delivery_address,
-            m.id AS member_id, m.role, m.nickname, m.avatar_id,
+            r.delivery_lat, r.delivery_lng, m.id AS member_id, m.role, m.nickname, m.avatar_id,
             (SELECT COUNT(*) FROM members x WHERE x.room_id = r.id) AS member_count,
             (SELECT COALESCE(SUM(o.quantity * o.unit_price_twd), 0) FROM order_items o
               WHERE o.room_id = r.id AND o.member_id = m.id) AS my_total_twd
@@ -22,7 +22,8 @@ export function myRooms(db: Db, sessionId: string): MyRoomSummary[] {
      LIMIT ?`,
   ).all(sessionId, MY_ROOMS_LIMIT) as Array<{
     id: string; title: string; status: "open" | "closed"; created_at: number; closed_at: number | null;
-    delivery_x: number | null; delivery_y: number | null; delivery_address: string | null; member_id: string; role: "owner" | "participant";
+    delivery_x: number | null; delivery_y: number | null; delivery_address: string | null;
+    delivery_lat: number | null; delivery_lng: number | null; member_id: string; role: "owner" | "participant";
     nickname: string; avatar_id: string; member_count: number; my_total_twd: number;
   }>;
   const stores = db.prepare("SELECT store_id, name FROM room_stores WHERE room_id = ? ORDER BY sort_order");
@@ -38,6 +39,7 @@ export function myRooms(db: Db, sessionId: string): MyRoomSummary[] {
     nickname: r.nickname,
     avatarId: r.avatar_id,
     deliveryPoint: r.delivery_x === null ? null : { x: r.delivery_x, y: r.delivery_y! },
+    deliveryLocation: r.delivery_lat == null ? null : { lat: r.delivery_lat, lng: r.delivery_lng! },
     deliveryAddress: r.delivery_address ?? null,
     stores: (stores.all(r.id) as Array<{ store_id: string; name: string }>).map((s) => ({ id: s.store_id, name: s.name })),
   }));
