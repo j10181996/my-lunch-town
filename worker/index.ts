@@ -2,6 +2,7 @@ import type { MoveInput, PlayerPresence } from "../shared/contracts";
 import type { Ctx } from "../server/context";
 import { PAYMENT_REMINDER_SCHEMA } from "../server/rooms/payment-schema";
 import { requireMember } from "../server/rooms/rooms";
+import { closeExpiredRooms } from "../server/rooms/deadline";
 import { requireOwner } from "../server/stores/stores";
 import { randomId } from "../server/util";
 import { AppError, err, exportSnapshot, openSnapshot, type Db } from "./db";
@@ -162,6 +163,8 @@ export default {
               db.prepare("INSERT INTO live_bubbles (room_id, member_id, text, created_at) VALUES (?, ?, ?, ?)").run(roomId, memberId, text, Date.now());
             },
           } };
+          // Sites 沒有已驗證的排程：任何寫入請求順便收掉已過截止的團，與本次寫入一起提交。
+          if (request.method !== "GET") closeExpiredRooms(ctx);
           const { result, contentType } = await dispatch(ctx, sid, request.method, url.pathname, body, env.DEMO_KEY ?? "demo");
           if (request.method !== "GET") {
             db.prepare("DELETE FROM live_bubbles WHERE created_at < ?").run(Date.now() - 60_000);

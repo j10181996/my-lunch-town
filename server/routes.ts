@@ -1,4 +1,5 @@
 import { setLunchReady } from "./rooms/party";
+import { expireRoom, setDeadline } from "./rooms/deadline";
 import { listManagementStores } from "./stores/store-list";
 import { getTownCatalog } from "./stores/town-catalog";
 import { setHours } from "./stores/stores";
@@ -50,6 +51,8 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   app.post<{ Params: P }>("/api/rooms/:id/close", async (req) =>
     closeRoom(ctx, req.sid, req.params.id, (req.body as { requestId?: unknown } | undefined)?.requestId),
   );
+  app.put<{ Params: P }>("/api/rooms/:id/deadline", async (req) => setDeadline(ctx, req.sid, req.params.id, req.body));
+  app.post<{ Params: P }>("/api/rooms/:id/expire", async (req) => expireRoom(ctx, req.sid, req.params.id));
   app.get<{ Params: P }>("/api/rooms/:id/summary", async (req) => getOwnerSummary(db, req.sid, req.params.id));
   app.get<{ Params: P }>("/api/rooms/:id/export", async (req, reply) => {
     const textOut = exportOrder(db, req.sid, req.params.id);

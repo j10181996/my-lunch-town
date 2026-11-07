@@ -21,6 +21,7 @@ import { randomId, requestId as checkRequestId, text } from "../util";
 import { roomStoreOrders } from "../orders/storeOrders";
 
 import { paymentRemindedAt, paymentStatus } from "./payments";
+import { deadlinePassed, parseDeadline } from "./deadline";
 
 interface RoomRow {
   payment_json: string | null;
@@ -33,6 +34,7 @@ interface RoomRow {
   revision: number;
   delivery_x: number | null;
   delivery_y: number | null;
+  deadline_at?: number | null;
 }
 interface MemberRow {
   id: string;
@@ -58,6 +60,7 @@ export function toRoom(r: RoomRow): Room {
     catalogVersion: r.catalog_version,
     revision: r.revision,
     deliveryPoint: r.delivery_x === null ? null : { x: r.delivery_x, y: r.delivery_y! },
+    deadlineAt: r.deadline_at ?? null,
   };
 }
 
@@ -262,7 +265,11 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
   const avatarDigest = avatarId ? JSON.stringify([baseDigest, avatarId]) : baseDigest;
   const storeIds = parseStoreIds(input?.storeIds);
   // 沒帶店家只可能是升級前的請求：沿用舊 digest，讓已成功的請求仍能重試，新請求在交易內拒絕。
-  const digest = storeIds ? JSON.stringify([avatarDigest, storeIds]) : avatarDigest;
+  const storeDigest = storeIds ? JSON.stringify([avatarDigest, storeIds]) : avatarDigest;
+  // 截止時間的範圍檢查在去重之後，讓逾時重送的成功請求仍能取回結果。
+  const rawDeadline = input?.deadlineAt;
+  if (rawDeadline !== undefined && rawDeadline !== null && !Number.isSafeInteger(rawDeadline)) throw err.invalid("截止時間格式錯誤");
+  const digest = rawDeadline != null ? JSON.stringify([storeDigest, rawDeadline]) : storeDigest;
   const { db } = ctx;
 
   const roomId = withWriteTx(db, () => {
@@ -276,6 +283,7 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
 
     if (!storeIds) throw err.invalid("請先選擇要揪的店家");
     const openedAt = Date.now();
+    const deadlineAt = parseDeadline(rawDeadline, openedAt) ?? null;
     // 只凍結團長選的店與其供應中餐點；任何一家不能接單就整團不開，避免默默少一家。
     const stores = db
       .prepare(
@@ -304,9 +312,9 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
     const isSample = stores.every((s) => s.is_sample === 1) ? 1 : 0;
     db.prepare(
       `INSERT INTO rooms
-        (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y)
-        VALUES (?, ?, 'open', ?, ?, 1, ?, ?, ?)`,
-    ).run(id, title, `room:${id}`, isSample, Date.now(), point?.x ?? null, point?.y ?? null);
+        (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y, deadline_at)
+        VALUES (?, ?, 'open', ?, ?, 1, ?, ?, ?, ?)`,
+    ).run(id, title, `room:${id}`, isSample, Date.now(), point?.x ?? null, point?.y ?? null, deadlineAt);
 
     const insStore = db.prepare(
       `INSERT INTO room_stores
@@ -348,7 +356,7 @@ export function joinRoom(ctx: Ctx, sessionId: string, roomId: string, input: Joi
   const revision = withWriteTx(db, () => {
     const room = getRoomRow(db, roomId);
     if (findMember(db, roomId, sessionId)) return null; // 另一分頁剛加入
-    if (room.status === "closed") throw err.closed();
+    if (room.status === "closed" || deadlinePassed(room)) throw err.closed();
     insertMember(db, roomId, sessionId, nickname, requested ?? pickAvatar(db, roomId), "participant");
     return bumpRevision(db, roomId);
   });
