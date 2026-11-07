@@ -388,3 +388,6 @@ export interface ManagementStore {
   managePath: string;
 }
 export interface ManagementStoreList { scope: "all"; stores: ManagementStore[] }
+
+/** 散步模式（#44）：即時菜單中目前不收單的店，街景畫成休息中。 */
+export interface Store { resting?: boolean }

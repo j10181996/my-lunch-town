@@ -223,7 +223,7 @@ export class Game {
     this.meals = meals;
     this.streetStores = streetStores;
     if (sig === prev && this.streetArt) return;
-    this.streetArt = buildStreet(stores, new Set(), streetStores);
+    this.streetArt = buildStreet(stores, new Set(stores.filter((s) => s.resting).map((s) => s.id)), streetStores);
     this.shopArt.clear();
     this.applySceneArt();
   }
@@ -752,7 +752,7 @@ export type { Rect };
 
 function catalogSig(stores: Store[], meals: Meal[], streetStores: StreetStore[]) {
   return [
-    ...stores.map((s) => `${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}`),
+    ...stores.map((s) => `${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}:${s.resting ? 1 : 0}`),
     ...streetStores.map((s) => `street:${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}`),
     ...meals.map((m) => `${m.id}:${m.name}:${m.priceTwd}:${m.imageAssetKey}`),
   ].join("|");
