@@ -143,7 +143,7 @@ it("舊 schema 增欄與種子回填只做一次，保留舊資料與既有訂�
       expect(db.prepare("SELECT * FROM rooms").get())
         .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null });
       expect(db.prepare("SELECT * FROM room_stores").get())
-        .toEqual({ ...before.frozen, delivery_json: null });
+        .toEqual({ ...before.frozen, delivery_json: null, order_deadline_at: null });
       expect(db.prepare("SELECT * FROM store_orders").get())
         .toEqual({ ...before.order, fulfillment: "pickup", distance_km: null, delivery_min_twd: null });
       expect(db.prepare("SELECT COUNT(*) AS n FROM stores").get()).toMatchObject({ n: 1 });

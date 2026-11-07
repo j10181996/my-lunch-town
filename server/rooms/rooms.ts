@@ -1,3 +1,4 @@
+import { storeOpening } from "../../shared/store-hours";
 import { socialEnabled } from "./social-schema";
 import type {
   Catalog,
@@ -100,6 +101,8 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
       door_x: number;
       door_y: number;
       delivery_json: string | null;
+      hours_json?: string | null;
+      order_deadline_at?: number | null;
     }>;
   const meals = db
     .prepare(
@@ -118,6 +121,7 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
       interiorAssetKey: `interior-${s.style_key}`,
       styleKey: s.style_key,
       lotIndex: s.lot_index,
+      orderDeadlineAt: s.order_deadline_at ?? null,
       delivery: s.delivery_json === null ? null : JSON.parse(s.delivery_json),
     })),
     meals: meals.map((m) => ({
@@ -224,7 +228,10 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
     throw err.invalid("送餐地點座標須在 0 至 1 之間");
   }
   // 沒選地點時保留上一版 digest，讓升級前的成功請求仍可重試。
-  const digest = point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
+  const avatarId = typeof input?.avatarId === "string" && AVATAR_IDS.includes(input.avatarId) ? input.avatarId : null;
+  // 沒選角色時沿用舊 digest，讓舊版前端的重試請求仍然成立。
+  const baseDigest = point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
+  const digest = avatarId ? JSON.stringify([baseDigest, avatarId]) : baseDigest;
   const { db } = ctx;
 
   const roomId = withWriteTx(db, () => {
@@ -236,6 +243,7 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
       return (JSON.parse(prev.result_json) as { roomId: string }).roomId;
     }
 
+    const openedAt = Date.now();
     // 凍結當下所有營業中店家與其供應中餐點
     const stores = db
       .prepare(
@@ -248,11 +256,13 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
         lot_index: number;
         is_sample: number;
         delivery_json: string | null;
+        hours_json: string | null;
       }>;
-    if (stores.length === 0) throw err.invalid("小鎮目前沒有營業中的店，請先開店");
+    const accepting = stores.filter((s) => storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).open);
+    if (accepting.length === 0) throw err.invalid("小鎮目前沒有營業中的店，請先開店");
 
     const id = randomId(8);
-    const isSample = stores.every((s) => s.is_sample === 1) ? 1 : 0;
+    const isSample = accepting.every((s) => s.is_sample === 1) ? 1 : 0;
     db.prepare(
       `INSERT INTO rooms
         (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y)
@@ -261,21 +271,21 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
 
     const insStore = db.prepare(
       `INSERT INTO room_stores
-        (room_id, store_id, name, style_key, lot_index, door_x, door_y, sort_order, delivery_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (room_id, store_id, name, style_key, lot_index, door_x, door_y, sort_order, delivery_json, order_deadline_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    stores.forEach((s, i) => {
+    accepting.forEach((s, i) => {
       const door = lotDoor(s.lot_index);
-      insStore.run(id, s.id, s.name, s.style_key, s.lot_index, door.x, door.y, i, s.delivery_json);
+      insStore.run(id, s.id, s.name, s.style_key, s.lot_index, door.x, door.y, i, s.delivery_json, storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).deadline);
     });
     db.prepare(
       `INSERT INTO room_meals (room_id, meal_id, store_id, name, price_twd, image_key, available, tags_json, sort_order)
        SELECT ?, m.id, m.store_id, m.name, m.price_twd, m.image_key, 1, m.tags_json, m.sort_order
-       FROM meals m JOIN stores s ON s.id = m.store_id
-       WHERE s.status = 'open' AND m.available = 1`,
-    ).run(id);
+       FROM meals m JOIN room_stores s ON s.store_id = m.store_id AND s.room_id = ?
+       WHERE m.available = 1`,
+    ).run(id, id);
 
-    insertMember(db, id, sessionId, nickname, AVATAR_IDS[0], "owner");
+    insertMember(db, id, sessionId, nickname, avatarId ?? AVATAR_IDS[0], "owner");
     db.prepare(
       "INSERT INTO processed_requests (scope, actor_id, request_id, payload_digest, result_json) VALUES ('create-room', ?, ?, ?, ?)",
     ).run(sessionId, reqId, digest, JSON.stringify({ roomId: id }));

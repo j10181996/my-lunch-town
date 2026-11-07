@@ -1,3 +1,4 @@
+import { StoreHoursSettings } from "./StoreHoursSettings";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   DeliveryRules,
@@ -137,6 +138,7 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
       <TopBar>
         <span className="sep" />
         <span className="title">店家後台</span>
+        <a className="btn" {...link("/management/stores")}>店家清單</a>
         <StoreSwitcher currentId={profile.id} />
         <span className="spacer" />
         <a className="btn" {...link("/shop")}>
@@ -206,6 +208,8 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
             </div>
             {profile.isSample && <small className="muted">這是示範店家，管理碼為 demo-{profile.id}。</small>}
           </section>
+
+          <StoreHoursSettings key={`hours-${profile.id}`} profile={profile} onSaved={setProfile} />
 
           <section className="panel">
             <div className="row" style={{ justifyContent: "space-between" }}>

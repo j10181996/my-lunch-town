@@ -49,7 +49,7 @@ a { color: var(--accent-ink); }
 .btn.square { width: 32px; height: 32px; padding: 0; }
 .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #f2b631; outline-offset: 2px; }
 
-input[type="text"], input[type="number"], textarea, select {
+input[type="text"], input[type="search"], input[type="number"], textarea, select {
   border: 2px solid var(--ink); border-radius: 8px; background: #fff; padding: 6px 10px; width: 100%;
 }
 label.field { display: grid; gap: 4px; font-weight: 700; }
@@ -230,6 +230,24 @@ label.field small { font-weight: 400; color: var(--sub); }
 .payment-qr-box { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .payment-qr { width: 168px; height: 168px; border: 2px solid var(--line); border-radius: 8px; background: #fff; }
 
+.hours-settings fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.hours-day { border-top: 1px solid var(--ink); padding-top: 8px; }
+.hours-slot { align-items: end; }
+.hours-slot input { min-width: 100px; max-width: 150px; }
+
+.store-directory { max-width: 1200px; }
+.directory-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.directory-counts .card { display: grid; gap: 4px; }
+.directory-counts strong { font-size: 28px; }
+.directory-search { flex: 1; min-width: 160px; }
+.directory-table { overflow-x: auto; }
+.directory-table table { width: 100%; border-collapse: collapse; text-align: left; }
+.directory-table caption { text-align: left; padding: 8px 0; }
+.directory-table th, .directory-table td { padding: 12px 8px; border-bottom: 1px solid var(--ink); }
+.directory-table th small { display: block; font-weight: 400; }
+.directory-open { background: #dcebd6; }
+.store-directory h1, .store-directory p, .store-directory h3 { margin: 0; }
+@media (max-width: 600px) { .directory-counts { gap: 6px; } .directory-counts .card { padding: 8px; } }
 /* 小鎮生活：控制列避開返回與點餐按鈕。 */
 .town-controls { position: absolute; top: 12px; right: 12px; z-index: 4; max-width: calc(100% - 24px); max-height: calc(100% - 24px); display: flex; flex-direction: column; align-items: flex-end; }
 .emote-bar { flex-shrink: 0; display: flex; gap: 5px; justify-content: flex-end; padding: 5px; border: 2px solid #795c3d; border-radius: 13px; background: #fff8e9f2; box-shadow: 0 3px 0 #3b2a2050; }
