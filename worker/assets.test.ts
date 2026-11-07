@@ -7,7 +7,7 @@ const assets = { async fetch(request: Request) {
   });
 } };
 describe("Sites direct page navigation without SPA asset fallback", () => {
-  for (const path of ["/", "/management/stores", "/r/hgafccbf", "/r/hgafccbf/", "/r/hgafccbf?view=side", "/shop/new", "/shop/store-1"]) {
+  for (const path of ["/", "/management/stores", "/shop", "/shop/", "/r/hgafccbf", "/r/hgafccbf/", "/r/hgafccbf?view=side", "/shop/new", "/shop/store-1"]) {
     it(`loads ${path}`, async () => {
       const response = await servePageOrAsset(new Request(`https://town.test${path}`), assets);
       expect(response.status).toBe(200);

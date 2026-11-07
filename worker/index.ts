@@ -30,6 +30,8 @@ function validMove(value: unknown): value is MoveInput {
     && (m.sceneId === "street" || /^shop:[\w-]{1,40}$/.test(m.sceneId))
     && Number.isFinite(m.x) && m.x >= 0 && m.x <= 1
     && Number.isFinite(m.y) && m.y >= 0 && m.y <= 1
+    && (m.accessory === undefined || ["none", "flower", "leaf", "cap"].includes(m.accessory))
+    && (m.badge === undefined || ["visit", "order", "friend", "collect"].includes(m.badge))
     && ["up", "down", "left", "right"].includes(m.direction) && Number.isSafeInteger(m.seq);
 }
 

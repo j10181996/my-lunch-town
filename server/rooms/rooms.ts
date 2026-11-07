@@ -1,4 +1,5 @@
 import { storeOpening } from "../../shared/store-hours";
+import { socialEnabled } from "./social-schema";
 import type {
   Catalog,
   CreateRoomInput,
@@ -171,6 +172,7 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
       amountTwd: mine.totalTwd,
       status: paymentStatus(db, roomId, me.id),
     } : null,
+    socialEnabled: socialEnabled(db, me.id),
     room: toRoom(room),
     me,
     members: listMembers(db, roomId).map((m) => ({ id: m.id, nickname: m.nickname, avatarId: m.avatarId })),
@@ -222,7 +224,10 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
     throw err.invalid("送餐地點座標須在 0 至 1 之間");
   }
   // 沒選地點時保留上一版 digest，讓升級前的成功請求仍可重試。
-  const digest = point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
+  const avatarId = typeof input?.avatarId === "string" && AVATAR_IDS.includes(input.avatarId) ? input.avatarId : null;
+  // 沒選角色時沿用舊 digest，讓舊版前端的重試請求仍然成立。
+  const baseDigest = point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
+  const digest = avatarId ? JSON.stringify([baseDigest, avatarId]) : baseDigest;
   const { db } = ctx;
 
   const roomId = withWriteTx(db, () => {
@@ -276,7 +281,7 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
        WHERE m.available = 1`,
     ).run(id, id);
 
-    insertMember(db, id, sessionId, nickname, AVATAR_IDS[0], "owner");
+    insertMember(db, id, sessionId, nickname, avatarId ?? AVATAR_IDS[0], "owner");
     db.prepare(
       "INSERT INTO processed_requests (scope, actor_id, request_id, payload_digest, result_json) VALUES ('create-room', ?, ?, ?, ?)",
     ).run(sessionId, reqId, digest, JSON.stringify({ roomId: id }));

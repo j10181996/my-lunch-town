@@ -17,8 +17,10 @@ function client() {
   };
 }
 const owner = client(), guest = client(), stranger = client(), admin = client();
-const input = { title: "Sites 整合驗證", nickname: "團主", requestId: id() };
+const input = { title: "Sites 整合驗證", nickname: "團主", avatarId: "avatar-green", requestId: id() };
 const created = await owner("POST", "/api/rooms", input);
+assert.equal(created.snapshot.me.avatarId, "avatar-green", "owner avatar survives integration");
+assert.equal(created.snapshot.socialEnabled, true);
 const room = created.snapshot.room.id, root = `/api/rooms/${room}`;
 assert.equal((await owner("POST", "/api/rooms", input)).snapshot.room.id, room, "create request is idempotent");
 const joined = await guest("POST", root + "/join", { nickname: "團員", avatarId: "avatar-pink" });
@@ -34,9 +36,9 @@ assert.equal((await guest("GET", root + "/snapshot")).myTotalQuantity, 1);
 // All requests read the same starting revision before their CAS writes race.
 await Promise.all(Array.from({ length: 6 }, () => guest("POST", root + "/order-delta", { ...change, requestId: id() })));
 assert.equal((await owner("GET", root + "/summary")).totalQuantity, 7, "concurrent increments are never lost");
-const guestLive = { clientId: id(), move: { sceneId: "street", x: 0.4, y: 0.5, direction: "right", seq: 1 } };
+const guestLive = { clientId: id(), move: { sceneId: "street", x: 0.4, y: 0.5, direction: "right", seq: 1, accessory: "leaf", badge: "friend" } };
 const firstLive = await guest("POST", root + "/live", guestLive);
-assert(firstLive.presence.players.some((p) => p.memberId === joined.me.id && p.x === 0.4));
+assert(firstLive.presence.players.some((p) => p.memberId === joined.me.id && p.x === 0.4 && p.accessory === "leaf" && p.badge === "friend"));
 const ownerLive = { clientId: id() };
 let sync = await owner("POST", root + "/live", ownerLive);
 assert(sync.presence.players.some((p) => p.memberId === joined.me.id));
@@ -48,6 +50,20 @@ await guest("POST", root + "/live", { ...guestLive, move: { ...guestLive.move, x
 await guest("POST", root + "/live", { ...guestLive, leave: true });
 sync = await owner("POST", root + "/live", ownerLive);
 assert(!sync.presence.players.some((p) => p.memberId === joined.me.id));
+await stranger("POST", root + "/emote", { emote: "wave" }, 401);
+await guest("PUT", root + "/social", { enabled: false });
+assert.equal((await guest("GET", root + "/snapshot")).socialEnabled, false);
+await guest("POST", root + "/emote", { emote: "wave" }, 403);
+await guest("PUT", root + "/social", { enabled: true });
+assert((await guest("POST", root + "/emote", { emote: "wave" })).text);
+const directory = await stranger("GET", "/api/management/stores");
+assert(directory.stores.length >= created.snapshot.catalog.stores.length);
+assert(directory.stores.every((s) => !s.canViewDetails && s.activeRoomCount === null));
+for (const path of ["/shop", "/shop/", "/management/stores"]) {
+  const response = await fetch(base + path);
+  assert.equal(response.status, 200, `direct route: ${path}`);
+  assert(response.headers.get("content-type")?.includes("text/html"));
+}
 await guest("POST", root + "/close", { requestId: id() }, 403);
 await admin("POST", "/api/stores/claim", { manageKey: `demo-${meal.storeId}` });
 await guest("POST", `/api/stores/${meal.storeId}/live`, {}, 403);
@@ -84,5 +100,5 @@ assert.equal((await guest("GET", root + "/snapshot")).totalQuantity, 8);
 await guest("PUT", `/api/stores/${meal.storeId}/hours`, null, 403);
 await admin("PUT", `/api/stores/${meal.storeId}/hours`, null);
 await owner("POST", root + "/live", { ...ownerLive, leave: true });
-console.log("Sites integration passed: sessions, permissions, idempotency, 6 concurrent writes, presence, bubbles, close/export, store status, payment confirmation.");
+console.log("Sites integration passed: sessions, permissions, idempotency, 6 concurrent writes, presence, bubbles, close/export, store status, payment confirmation, hours, management list, owner avatar, social settings, emotes and accessories.");
 console.log(`Persistence fixture: ${root}`);

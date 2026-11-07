@@ -3,7 +3,7 @@ import type { CreateStoreResult, TownLot } from "../../shared/contracts";
 import { STYLES } from "../../shared/town";
 import { storeGateway } from "../adapters/http";
 import { errorText, newRequestId } from "../api";
-import { navigate } from "../router";
+import { link, navigate } from "../router";
 import { CopyButton, Modal, Storefront, TopBar } from "../ui";
 import { TownMap } from "../TownMap";
 
@@ -86,6 +86,10 @@ export function ShopNew() {
       <TopBar>
         <span className="sep" />
         <span className="title">開一家新店</span>
+        <span className="spacer" />
+        <a className="btn" {...link("/shop")}>
+          店家入口
+        </a>
       </TopBar>
       <main className="page-body" style={{ maxWidth: 760 }}>
         <form className="panel" onSubmit={submit}>

@@ -1,3 +1,4 @@
+import { socialEnabled } from "../rooms/social-schema";
 import type { OrderAck, OrderDeltaInput, OwnerSummary, RoomSnapshot } from "../../shared/contracts";
 import { buildExportText, computeStoreTotals, grandTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
 import { MAX_QTY_PER_MEAL } from "../../shared/town";
@@ -75,7 +76,7 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
 
   if (fresh) {
     ctx.events.roomChanged(roomId, ack.revision);
-    if (bubbleText) ctx.events.bubble(roomId, memberId, bubbleText);
+    if (bubbleText && socialEnabled(db, memberId)) ctx.events.bubble(roomId, memberId, bubbleText);
   }
   return ack;
 }

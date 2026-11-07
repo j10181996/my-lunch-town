@@ -65,6 +65,7 @@ export interface StoreTotal {
   totalTwd: number;
 }
 export interface RoomSnapshot {
+  socialEnabled?: boolean;
   room: Room;
   me: Member;
   members: Array<Pick<Member, "id" | "nickname" | "avatarId">>;
@@ -90,6 +91,7 @@ export interface CreateRoomInput {
   title: string;
   nickname: string;
   requestId: string; // 同一工作階段的開團重試使用相同 ID
+  avatarId?: string; // 團長角色；省略或無效時用預設角色
 }
 export interface JoinInput { nickname: string; avatarId: string }
 export interface OrderDeltaInput {
@@ -114,6 +116,8 @@ export interface ApiError {
   requestId?: string;
 }
 export interface PlayerPresence {
+  accessory?: "none" | "flower" | "leaf" | "cap";
+  badge?: "visit" | "order" | "friend" | "collect";
   memberId: Id;
   sceneId: SceneId;
   x: number; // 0..1，場景內邏輯座標
