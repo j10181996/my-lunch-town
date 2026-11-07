@@ -1,11 +1,13 @@
 import { useState } from "react";
-import type { Meal, OwnerSummary, RoomSnapshot, Store, StreetStore } from "../../shared/contracts";
+import type { Meal, MealOptionGroup, OrderItem, OwnerSummary, RoomSnapshot, Store, StreetStore } from "../../shared/contracts";
 import { budgetStatus, DIET_FILTERS, dietTagsOf, matchesDietFilters } from "../../shared/diet";
 import { describeDelivery, describeFulfillment, evaluateStoreDelivery } from "../../shared/delivery";
+import { MAX_NOTE_LENGTH, optionLabel } from "../../shared/meal-options";
+import { describeItem, lineName } from "../../shared/pricing";
 import { styleOf } from "../../shared/town";
 import { drawIcon } from "../art/scenes";
 import { ctxOf, makeCanvas } from "../art/pixel";
-import type { Pending } from "../state/useRoom";
+import { pendingKeyOf, type LineRef, type Pending } from "../state/useRoom";
 import { MealImg, money, OrderStatusBadge } from "../ui";
 import { useOrderPrefs } from "./preferences";
 
@@ -13,12 +15,15 @@ export interface OrderingProps {
   snap: RoomSnapshot;
   pending: Record<string, Pending>;
   canEdit: boolean;
-  change(mealId: string, delta: 1 | -1): void;
+  change(line: string | LineRef, delta: 1 | -1): void;
 }
 
+/** 同一餐點各種選項與備註的合計份數。 */
 function qtyOf(snap: RoomSnapshot, mealId: string) {
-  return snap.myItems.find((i) => i.mealId === mealId)?.quantity ?? 0;
+  return snap.myItems.filter((i) => i.mealId === mealId).reduce((sum, i) => sum + i.quantity, 0);
 }
+
+const lineOf = (it: OrderItem): LineRef => ({ mealId: it.mealId, choiceIds: it.choiceIds ?? [], note: it.note ?? "" });
 
 function StoreIcon({ store }: { store: Pick<Store, "styleKey"> }) {
   const [src] = useState(() => {
@@ -69,10 +74,11 @@ export function MenuPanel({
         </div>
         {filtersOpen && <DietFilterBar id={filterId} />}
       </div>
-      <div className="muted">選好餐點，按 ＋1 加入訂單</div>
+      <div className="muted">選好餐點，按 ＋1 加入訂單；有選項的餐點選完再加入，也可以加備註</div>
       <div className="menu">
         {meals.map((m) => (
-          <MealRow key={m.id} focused={m.id === focusMealId} meal={m} qty={qtyOf(snap, m.id)} pending={pending[m.id]} canEdit={canEdit} change={change}
+          <MealRow key={m.id} focused={m.id === focusMealId} meal={m} lines={snap.myItems.filter((i) => i.mealId === m.id)}
+            pending={Object.values(pending).find((p) => p.mealId === m.id)} canEdit={canEdit} change={change}
             overBudget={!!budget && m.priceTwd > Math.max(0, budget.remainingTwd)} />
         ))}
         {storeMeals.length === 0 && <div className="muted">這家店在本團沒有可點的餐點。</div>}
@@ -167,7 +173,7 @@ function BudgetEditor({ totalTwd }: { totalTwd: number }) {
 function MealRow({
   focused,
   meal,
-  qty,
+  lines,
   pending,
   canEdit,
   change,
@@ -176,15 +182,20 @@ function MealRow({
   focused?: boolean;
   overBudget?: boolean;
   meal: Meal;
-  qty: number;
+  lines: OrderItem[];
   pending?: Pending;
   canEdit: boolean;
-  change(mealId: string, delta: 1 | -1): void;
+  change(line: string | LineRef, delta: 1 | -1): void;
 }) {
+  const [choosing, setChoosing] = useState(false);
   const busy = !!pending;
+  const qty = lines.reduce((sum, i) => sum + i.quantity, 0);
+  const hasOptions = (meal.options?.length ?? 0) > 0;
+  // 只有一筆明細時才能在菜單上直接減量；多種組合請到「我的訂單」調整。
+  const only = lines.length === 1 ? lines[0] : null;
   return (
     <div
-      className={`meal-row${focused ? " focused" : ""}`}
+      className={`meal-row${focused ? " focused" : ""}${choosing ? " choosing" : ""}`}
       ref={(el) => {
         if (focused && el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
       }}
@@ -192,7 +203,7 @@ function MealRow({
       <MealImg assetKey={meal.imageAssetKey} alt={meal.name} />
       <div>
         <div className="meal-name">{meal.name}</div>
-        <div className="price">{money(meal.priceTwd)}</div>
+        <div className="price">{money(meal.priceTwd)}{hasOptions && <small className="muted"> 起</small>}</div>
         <div>
           {meal.tags.map((t) => (
             <span className={`tag${dietTagsOf([t]).size > 0 ? " diet" : ""}`} key={t}>
@@ -201,26 +212,106 @@ function MealRow({
           ))}
           {overBudget && <span className="tag over-budget">超出預算</span>}
         </div>
+        {!choosing && canEdit && meal.available && (
+          <button type="button" className="link-btn" onClick={() => setChoosing(true)}>
+            {hasOptions ? "選項／備註" : "加備註"}
+          </button>
+        )}
       </div>
       <div className="stack" style={{ justifyItems: "end" }}>
         <button
           className="btn plus"
           disabled={!canEdit || busy || !meal.available}
-          onClick={() => change(meal.id, 1)}
-          aria-label={`${meal.name} 加一份`}
+          onClick={() => (hasOptions ? setChoosing(true) : change(meal.id, 1))}
+          aria-label={hasOptions ? `${meal.name} 選擇選項` : `${meal.name} 加一份`}
         >
           {busy && pending?.delta === 1 ? "…" : "+1"}
         </button>
         {qty > 0 && (
           <div className="qty-ctrl">
-            <button className="btn small" disabled={!canEdit || busy} onClick={() => change(meal.id, -1)} aria-label={`${meal.name} 減一份`}>
-              −
-            </button>
+            {only && (
+              <button className="btn small" disabled={!canEdit || busy} onClick={() => change(lineOf(only), -1)} aria-label={`${meal.name} 減一份`}>
+                −
+              </button>
+            )}
             <span className="qty" aria-label={`已點 ${qty} 份`}>
               {busy ? "…" : qty}
             </span>
           </div>
         )}
+        {qty > 0 && !only && <small className="muted">到我的訂單調整</small>}
+      </div>
+      {choosing && (
+        <OptionChooser
+          meal={meal}
+          disabled={!canEdit || busy || !meal.available}
+          onCancel={() => setChoosing(false)}
+          onAdd={(choiceIds, note) => {
+            change({ mealId: meal.id, choiceIds, note }, 1);
+            setChoosing(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** 依店家設定挑選項（單選、複選、必選）並寫備註；選完才加入一份。 */
+function OptionChooser({ meal, disabled, onAdd, onCancel }: {
+  meal: Meal;
+  disabled: boolean;
+  onAdd(choiceIds: string[], note: string): void;
+  onCancel(): void;
+}) {
+  const groups: MealOptionGroup[] = meal.options ?? [];
+  const [picked, setPicked] = useState<Record<string, string[]>>({});
+  const [note, setNote] = useState("");
+  const toggle = (g: MealOptionGroup, id: string) => setPicked((prev) => {
+    const cur = prev[g.id] ?? [];
+    if (cur.includes(id)) return { ...prev, [g.id]: cur.filter((c) => c !== id) };
+    if (g.max === 1) return { ...prev, [g.id]: [id] };
+    if (cur.length >= g.max) return prev;
+    return { ...prev, [g.id]: [...cur, id] };
+  });
+  // 依菜單順序送出，與伺服器的組合鍵一致。
+  const chosen = groups.flatMap((g) => g.choices.filter((c) => picked[g.id]?.includes(c.id)));
+  const choiceIds = chosen.map((c) => c.id);
+  const missing = groups.find((g) => (picked[g.id]?.length ?? 0) < g.min);
+  const unit = meal.priceTwd + chosen.reduce((sum, c) => sum + c.priceTwd, 0);
+  return (
+    <div className="option-chooser stack">
+      {groups.map((g) => (
+        <fieldset key={g.id} className="option-group">
+          <legend>
+            {g.name}{" "}
+            <small className="muted">
+              {g.min > 0 ? (g.max === 1 ? "必選" : `必選 ${g.min}–${g.max} 項`) : g.max === 1 ? "選填" : `選填，最多 ${g.max} 項`}
+            </small>
+          </legend>
+          <div className="chips">
+            {g.choices.map((c) => {
+              const on = picked[g.id]?.includes(c.id) ?? false;
+              return (
+                <button type="button" key={c.id} className={`chip${on ? " on" : ""}`} aria-pressed={on} onClick={() => toggle(g, c.id)}>
+                  {c.name}{c.priceTwd > 0 && <small> +{c.priceTwd}</small>}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+      ))}
+      <label className="field">
+        備註 <small>選填，最多 {MAX_NOTE_LENGTH} 字</small>
+        <input type="text" value={note} maxLength={MAX_NOTE_LENGTH} placeholder="例如：不要香菜"
+          onChange={(e) => setNote(e.target.value)} />
+      </label>
+      <div className="row option-actions">
+        <button type="button" className="btn primary" disabled={disabled || !!missing}
+          onClick={() => onAdd(choiceIds, note.trim())}
+          aria-label={`${lineName(meal.name, optionLabel(groups, choiceIds))} 加一份`}>
+          {missing ? `請選擇「${missing.name}」` : `加入 ${money(unit)}`}
+        </button>
+        <button type="button" className="btn ghost" onClick={onCancel}>取消</button>
       </div>
     </div>
   );
@@ -248,7 +339,10 @@ export function MyOrder({ snap, pending, canEdit, change }: OrderingProps) {
       items: snap.myItems.filter((i) => snap.catalog.meals.find((m) => m.id === i.mealId)?.storeId === s.id),
     }))
     .filter((g) => g.items.length > 0);
-  const name = (id: string) => snap.catalog.meals.find((m) => m.id === id)?.name ?? id;
+  const name = (it: OrderItem) => {
+    const meal = snap.catalog.meals.find((m) => m.id === it.mealId);
+    return lineName(meal?.name ?? it.mealId, optionLabel(meal?.options, it.choiceIds));
+  };
 
   return (
     <section className="stack" aria-label="我的訂單">
@@ -260,23 +354,27 @@ export function MyOrder({ snap, pending, canEdit, change }: OrderingProps) {
           <div key={store.id} className="store-block">
             <h4>{store.name}</h4>
             <div className="order-list">
-              {items.map((it) => (
-                <div className="order-line" key={it.mealId}>
-                  <span>
-                    {name(it.mealId)} <small className="muted">{money(it.unitPriceTwd)}</small>
-                  </span>
-                  <div className="qty-ctrl">
-                    <button className="btn small" disabled={!canEdit || !!pending[it.mealId]} onClick={() => change(it.mealId, -1)} aria-label={`${name(it.mealId)} 減一份`}>
-                      −
-                    </button>
-                    <span className="qty">{pending[it.mealId] ? "…" : it.quantity}</span>
-                    <button className="btn small" disabled={!canEdit || !!pending[it.mealId]} onClick={() => change(it.mealId, 1)} aria-label={`${name(it.mealId)} 加一份`}>
-                      +
-                    </button>
+              {items.map((it) => {
+                const busy = !!pending[pendingKeyOf(lineOf(it))];
+                return (
+                  <div className="order-line" key={it.lineKey ?? it.mealId}>
+                    <span>
+                      {name(it)} <small className="muted">{money(it.unitPriceTwd)}</small>
+                      {it.note && <small className="order-note">備註：{it.note}</small>}
+                    </span>
+                    <div className="qty-ctrl">
+                      <button className="btn small" disabled={!canEdit || busy} onClick={() => change(lineOf(it), -1)} aria-label={`${name(it)} 減一份`}>
+                        −
+                      </button>
+                      <span className="qty">{busy ? "…" : it.quantity}</span>
+                      <button className="btn small" disabled={!canEdit || busy} onClick={() => change(lineOf(it), 1)} aria-label={`${name(it)} 加一份`}>
+                        +
+                      </button>
+                    </div>
+                    <span className="price">{money(it.quantity * it.unitPriceTwd)}</span>
                   </div>
-                  <span className="price">{money(it.quantity * it.unitPriceTwd)}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))
@@ -303,8 +401,8 @@ export function GroupTotals({ snap }: { snap: RoomSnapshot }) {
           <h4>{s.name}</h4>
           <DeliveryStatus snap={snap} store={snap.catalog.stores.find((store) => store.id === s.storeId)!} />
           {s.meals.map((m) => (
-            <div className="sum-line" key={m.mealId}>
-              <span>{m.name}</span>
+            <div className="sum-line" key={m.lineKey ?? m.mealId}>
+              <span>{lineName(m.name, m.optionLabel)}</span>
               <span>{m.quantity} 份</span>
               <span className="price">{money(m.subtotalTwd)}</span>
             </div>
@@ -329,7 +427,7 @@ export function PeopleDetail({ snap, summary, paymentBusy, onConfirm }: {
   onConfirm(memberId: string, confirmed: boolean): void;
 }) {
   if (!summary) return <div className="muted">載入中…</div>;
-  const name = (id: string) => snap.catalog.meals.find((m) => m.id === id)?.name ?? id;
+  const mealOf = (id: string) => snap.catalog.meals.find((m) => m.id === id);
   return (
     <section className="stack" aria-label="每人明細">
       <h3 className="section-title">每人明細</h3>
@@ -354,7 +452,7 @@ export function PeopleDetail({ snap, summary, paymentBusy, onConfirm }: {
           {p.items.length === 0 ? (
             <small className="muted">尚未點餐</small>
           ) : (
-            <small>{p.items.map((it) => `${name(it.mealId)} × ${it.quantity}`).join("、")}</small>
+            <small>{p.items.map((it) => describeItem(mealOf(it.mealId), it)).join("、")}</small>
           )}
         </div>
       ))}

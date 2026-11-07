@@ -81,6 +81,14 @@ Worker 每個請求都把整個 image 載入 sql.js，執行領域函式後匯�
 
 開團時把當下的店家與餐點複製到 `room_stores`、`room_meals`。之後店家改價、下架或刪除餐點不影響進行中的團；團內計價一律讀凍結副本。
 
+### 餐點選項與備註
+
+店家可在餐點上設定選項群組（`meals.options_json`，例如辣度必選單選、加點選填可加價），開團時隨 `room_meals.options_json` 一起凍結。選項識別碼由伺服器依位置產生（`g0c1`），驗證與計價都是 `shared/meal-options.ts` 的純函式。
+
+點餐明細的鍵是「餐點 + 選項組合 + 備註」：`order_items` 主鍵為 `(room_id, member_id, meal_id, option_key, note)`，單價 = 餐點價格 + 選項加價，寫入時固定。店家彙總、匯出與店家訂單快照依「餐點 + 選項」分列，備註只出現在每人明細。每人每道餐點 20 份的上限跨所有組合合計。
+
+`OrderDeltaInput` 的 `choiceIds`、`note` 都沒帶（或為空）時，去重 digest 與回應都維持升級前的格式，讓舊請求重送仍相符。舊庫由 `server/orders/options-schema.ts` 的 `migrateMealOptions` 重建 `order_items`，Node 與 Worker 都會執行。
+
 ### 錯誤格式
 
 API 錯誤一律回 `{ code, message }`，`code` 是 `shared/contracts.ts` 的 `ErrorCode`，`message` 是給使用者看的繁中文字。在領域模組內用 `server/db-shared.ts` 的 `err.*` 工廠拋出；`shared/` 的純函式不能依賴 server，改拋帶 `code: "INVALID_INPUT"` 的一般 Error，再由 API 邊界轉成 `err.invalid`（見 `shared/payment.ts`、`shared/delivery.ts`）。
@@ -147,6 +155,6 @@ Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realti
 | `scripts/smoke-bag-quests.mjs` | 任務導引後鍵盤／真觸控移動、背包獨立入口與窄版捲動 | 開發伺服器 + Chrome |
 | `scripts/smoke-mobile.mjs` | 手機尺寸與真觸控事件：搖桿走路、觸控點餐、面板收合 | 開發伺服器 + Chrome |
 
-`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限。
+`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限；`meal-options.test.ts` 是餐點選項與備註的設定、計價、匯出、去重、並發與遷移。
 
 瀏覽器與 Sites 腳本只允許對 `localhost`／`127.0.0.1` 執行，並會寫入測試資料，請用獨立的 `DATA_DIR` 或本機 D1。
