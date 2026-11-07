@@ -64,8 +64,22 @@ export interface StoreTotal {
   totalQuantity: number;
   totalTwd: number;
 }
+/** 小鎮上不在本團的店面：只用來畫街景，不能進店點餐。 */
+export interface StreetStore {
+  id: Id;
+  name: string;
+  styleKey: string;
+  lotIndex: number;
+}
+export interface LunchParty {
+  readyMemberIds: string[];
+  celebration: { id: number; members: Array<Pick<Member, "id" | "nickname" | "avatarId">> } | null;
+}
 export interface RoomSnapshot {
+  lunchParty?: LunchParty;
   socialEnabled?: boolean;
+  /** 街上其他店面（不在本團），舊版伺服器可能沒有此欄位。 */
+  streetStores?: StreetStore[];
   room: Room;
   me: Member;
   members: Array<Pick<Member, "id" | "nickname" | "avatarId">>;
@@ -92,6 +106,7 @@ export interface CreateRoomInput {
   nickname: string;
   requestId: string; // 同一工作階段的開團重試使用相同 ID
   avatarId?: string; // 團長角色；省略或無效時用預設角色
+  storeIds?: Id[]; // 本團的店家，至少一家；型別保留選填只為了相容升級前的重試請求
 }
 export interface JoinInput { nickname: string; avatarId: string }
 export interface OrderDeltaInput {
@@ -302,10 +317,13 @@ export type PaymentMethod =
   | {
     type: "linepay";
     id: string;
+    /** 團主從 App 複製的收款連結；有填才產生 QR code。 */
+    link?: string;
   }
   | {
     type: "jkopay";
     id: string;
+    link?: string;
   }
   | {
     type: "cash";
@@ -325,10 +343,14 @@ export interface RoomSnapshot {
     info: PaymentInfo;
     sentAt: number | null;
     ownerNickname: string;
+    /** 僅團主可見：最近一次提醒未付款的時間。 */
+    remindedAt?: number | null;
   } | null;
   myPayment?: {
     amountTwd: number;
     status: PaymentStatus;
+    /** 僅在仍未付款時出現：團主最近一次提醒的時間。 */
+    remindedAt?: number | null;
   } | null;
 }
 export interface OwnerSummaryPerson {

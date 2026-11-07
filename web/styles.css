@@ -82,13 +82,7 @@ label.field small { font-weight: 400; color: var(--sub); }
 .stage .back { position: absolute; top: 12px; left: 12px; }
 .door-btn { position: absolute; transform: translate(-50%, -100%); }
 .side { background: var(--paper); border-left: 3px solid var(--line); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-/* 散步模式店內的開團按鈕固定在側欄底部，菜單再長也不用捲到底；負邊距抵銷 .side 的內距，讓底欄貼齊邊緣。 */
-.walk-cta {
-  position: sticky; bottom: -16px; z-index: 1;
-  margin: 0 -16px -16px; padding: 12px 16px 16px;
-  background: var(--paper); border-top: 2px dashed var(--line);
-}
-.walk-cta .btn { width: 100%; }
+.side-footer { position: sticky; bottom: -16px; margin: auto -16px -16px; padding: 12px 16px 16px; background: var(--paper); border-top: 3px solid var(--line); z-index: 1; }
 
 .banner { border-radius: var(--radius); padding: 8px 12px; font-weight: 700; display: flex; gap: 8px; align-items: center; }
 .banner.ok { background: var(--green-bg); color: #2a6a35; }
@@ -114,6 +108,17 @@ label.field small { font-weight: 400; color: var(--sub); }
 .qty-ctrl { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
 .qty { min-width: 22px; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
 .tag { display: inline-block; font-size: 12px; background: #fff; border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; margin-right: 4px; }
+.tag.diet { background: var(--green-bg); border-color: var(--green); color: #2a6a35; }
+.tag.over-budget { background: var(--err-bg); border-color: var(--accent-ink); color: var(--accent-ink); }
+.diet-filter { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 4px; }
+.diet-filter legend { font-weight: 700; font-size: 14px; padding: 0; margin-bottom: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 2px 12px; border: 2px solid var(--line); border-radius: 99px; background: #fff; font-size: 14px; cursor: pointer; }
+.chip input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); }
+.chip.on { border-color: var(--green); background: var(--green-bg); font-weight: 700; }
+.chip:focus-within { outline: 3px solid #f2b631; outline-offset: 1px; }
+.diet-hidden { justify-content: space-between; flex-wrap: wrap; }
+.budget input { max-width: 160px; }
 
 .order-list { display: grid; gap: 6px; }
 .order-line { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
@@ -234,6 +239,8 @@ label.field small { font-weight: 400; color: var(--sub); }
 .payment-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .payment-person { justify-content: space-between; margin: 8px 0; }
 .payment-send { white-space: normal; }
+.payment-qr-box { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.payment-qr { width: 168px; height: 168px; border: 2px solid var(--line); border-radius: 8px; background: #fff; }
 
 .hours-settings fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .hours-day { border-top: 1px solid var(--ink); padding-top: 8px; }
@@ -290,3 +297,6 @@ label.field small { font-weight: 400; color: var(--sub); }
   .stage .back { top: 8px; left: 6px; font-size: 11px; padding: 8px 6px; }
   .friend-interact { font-size: 12px; }
 }
+.diet-picker .chip { min-height: 30px; padding: 0 8px; font-size: 13px; border-width: 1px; }
+.store-picker { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
+.store-picker legend { font-weight: 700; padding: 0; margin-bottom: 6px; }

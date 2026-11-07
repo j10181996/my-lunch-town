@@ -32,11 +32,13 @@ export function validatePaymentInfo(input: unknown): PaymentInfo {
         };
       }
       case "linepay":
-      case "jkopay":
-        return {
-          type: method.type,
-          id: field(method.id, "收款 ID", 1, 40),
-        };
+      case "jkopay": {
+        const id = field(method.id, "收款 ID", 1, 40);
+        const link = method.link === undefined ? "" : field(method.link, "收款連結", 0, 300);
+        if (!link) return { type: method.type, id };
+        if (!isHttpsUrl(link)) return invalid("收款連結須為 https:// 開頭的網址");
+        return { type: method.type, id, link };
+      }
       case "cash": return {
         type: "cash",
         note: field(method.note, "現金說明", 0, 40),
@@ -52,4 +54,14 @@ export function validatePaymentInfo(input: unknown): PaymentInfo {
     methods,
     note: field(info.note, "備註", 0, 100),
   };
+}
+
+function isHttpsUrl(text: string): boolean {
+  if (/\s/.test(text)) return false;
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" && url.hostname.length > 0;
+  } catch {
+    return false;
+  }
 }

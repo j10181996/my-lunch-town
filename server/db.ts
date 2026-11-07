@@ -1,6 +1,8 @@
+import { PARTY_SCHEMA } from "./rooms/party-schema";
 import { migrateStoreHours } from "./store-hours-schema";
 import { SOCIAL_SCHEMA } from "./rooms/social-schema";
 import { hashKey, withWriteTx } from "./db-shared";
+import { PAYMENT_REMINDER_SCHEMA } from "./rooms/payment-schema";
 export { hashKey, withWriteTx, AppError, err } from "./db-shared";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -128,6 +130,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
   db.exec(SOCIAL_SCHEMA);
+  db.exec(PARTY_SCHEMA);
   migrateDelivery(db, seedFile);
   migratePayment(db);
   seedIfEmpty(db, seedFile);
@@ -235,5 +238,6 @@ function migratePayment(db: Db) {
       confirmed_at INTEGER,
       PRIMARY KEY (room_id, member_id)
     )`);
+    db.exec(PAYMENT_REMINDER_SCHEMA);
   });
 }

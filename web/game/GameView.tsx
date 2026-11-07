@@ -1,3 +1,4 @@
+import { NewcomerQuest } from "../journey/NewcomerQuest";
 import { VirtualJoystick } from "./VirtualJoystick";
 import { useTouchOrdering } from "./useTouchOrdering";
 import "./mobile.css";
@@ -136,7 +137,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     g.setDeliveryPoint(snap.room.deliveryPoint ?? null);
     g.setSelf(snap.me.id);
     g.setMembers(snap.members);
-    g.setCatalog(snap.catalog.stores, snap.catalog.meals);
+    g.setCatalog(snap.catalog.stores, snap.catalog.meals, snap.streetStores);
     g.setMyQuantities(new Map(snap.myItems.map((i) => [i.mealId, i.quantity])));
     if (snap.myTotalQuantity > 0) unlock("order");
   }, [snap]);
@@ -167,6 +168,12 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
       <VirtualJoystick disabled={!controlsEnabled} scene={scene} onMove={(x, y) => gameRef.current?.setTouchInput(x, y)} />
       <div className="touch-hint">{inShop ? (solo ? "逛逛陳列台，喜歡就用這家開團" : "點餐點圖案 ＋1，也可展開菜單") : "拖動搖桿逛街，或在面板選店家"}</div>
       <canvas ref={canvasRef} className="pixel" aria-label="午餐小鎮街景，用方向鍵或 WASD 移動角色" />
+      <NewcomerQuest achievements={collection.achievements} onGuide={(step) => {
+        setBagOpen(false);
+        if (step === "friend") { setLifeEnabled(true); gameRef.current?.leaveStore(); }
+        else { const store = snap.catalog.stores.find((s) => snap.catalog.meals.some((m) => m.storeId === s.id && m.available));
+          if (store) gameRef.current?.enterStore(store.id); }
+      }} />
       <div className="town-controls">
         <div className="emote-bar" role="group" aria-label="小鎮表情">
           {!solo && EMOTES.map((emote) => <button key={emote.id} className="emote-btn" title={emote.label}

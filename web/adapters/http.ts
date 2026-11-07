@@ -24,22 +24,26 @@ let socket: Socket | null = null;
 const bubbleListeners = new Set<(b: PlayerBubble) => void>();
 
 export interface RoomGatewayExt extends RoomGateway {
+  setLunchReady(roomId: string, ready: boolean): Promise<RoomSnapshot>;
   sendEmote(roomId: string, emote: EmoteId): Promise<{ text: string }>;
   setSocial(roomId: string, enabled: boolean): Promise<{ enabled: boolean }>;
   setPaymentInfo(roomId: string, info: PaymentInfo): Promise<RoomSnapshot>;
   sendPaymentInfo(roomId: string): Promise<RoomSnapshot>;
   reportPayment(roomId: string): Promise<RoomSnapshot>;
+  remindUnpaid(roomId: string): Promise<RoomSnapshot>;
   confirmPayment(roomId: string, memberId: string, confirmed: boolean): Promise<RoomSnapshot>;
   getPublicInfo(roomId: string): Promise<RoomPublicInfo>;
   onBubble(handler: (b: PlayerBubble) => void): () => void;
 }
 
 export const roomGateway: RoomGatewayExt = {
+  setLunchReady: (id, ready) => request("PUT", `/api/rooms/${id}/lunch-ready`, { ready }),
   sendEmote: (id, emote) => request("POST", `/api/rooms/${id}/emote`, { emote }),
   setSocial: (id, enabled) => request("PUT", `/api/rooms/${id}/social`, { enabled }),
   setPaymentInfo: (id, info) => request("PUT", `/api/rooms/${id}/payment-info`, info),
   sendPaymentInfo: (id) => request("POST", `/api/rooms/${id}/payment-info/send`),
   reportPayment: (id) => request("POST", `/api/rooms/${id}/payment/report`),
+  remindUnpaid: (id) => request("POST", `/api/rooms/${id}/payment/remind`),
   confirmPayment: (id, memberId, confirmed) =>
     request("POST", `/api/rooms/${id}/payment/${memberId}/confirm`, { confirmed }),
   createRoom: (input) => request("POST", "/api/rooms", input),

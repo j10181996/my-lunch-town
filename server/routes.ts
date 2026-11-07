@@ -1,3 +1,4 @@
+import { setLunchReady } from "./rooms/party";
 import { listManagementStores } from "./stores/store-list";
 import { getTownCatalog } from "./stores/town-catalog";
 import { setHours } from "./stores/stores";
@@ -23,7 +24,7 @@ import {
 
 import { listStoreOrders, updateStoreOrderStatus } from "./orders/storeOrders";
 
-import { confirmPayment, reportPayment, sendPaymentInfo, setPaymentInfo } from "./rooms/payments";
+import { confirmPayment, remindUnpaid, reportPayment, sendPaymentInfo, setPaymentInfo } from "./rooms/payments";
 
 export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string) {
   const { db } = ctx;
@@ -35,6 +36,8 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   }));
   app.post<{ Params: P }>("/api/rooms/:id/emote", async (req) => sendEmote(ctx, req.sid, req.params.id, req.body));
   app.put<{ Params: P }>("/api/rooms/:id/social", async (req) => setSocial(ctx, req.sid, req.params.id, req.body));
+
+  app.put<{ Params: P }>("/api/rooms/:id/lunch-ready", async (req) => setLunchReady(ctx, req.sid, req.params.id, req.body));
 
   // —— 團購 ——
   app.post("/api/rooms", async (req) => createRoom(ctx, req.sid, req.body as never));
@@ -58,6 +61,9 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   );
   app.post<{ Params: P }>("/api/rooms/:id/payment-info/send", async (req) =>
     sendPaymentInfo(ctx, req.sid, req.params.id),
+  );
+  app.post<{ Params: P }>("/api/rooms/:id/payment/remind", async (req) =>
+    remindUnpaid(ctx, req.sid, req.params.id),
   );
   app.post<{ Params: P }>("/api/rooms/:id/payment/report", async (req) =>
     reportPayment(ctx, req.sid, req.params.id),
