@@ -1,8 +1,10 @@
+import { VirtualJoystick } from "./VirtualJoystick";
+import { useTouchOrdering } from "./useTouchOrdering";
+import "./mobile.css";
 import { useEffect, useRef, useState } from "react";
 import type { MoveInput, PresenceSnapshot, RoomSnapshot, SceneId, Store } from "../../shared/contracts";
 import { roomGateway } from "../adapters/http";
 import { Game } from "./game";
-import { VirtualJoystick } from "./VirtualJoystick";
 
 interface Props {
   snap: RoomSnapshot;
@@ -19,13 +21,13 @@ interface Props {
 }
 
 export function GameView({ snap, presence, online, canOrder, controlsEnabled = true, onPickProduct, onNearProduct, onReady, onSceneChange, onMove }: Props) {
-  const tapStart = useRef<{ id: number; x: number; y: number; at: number; scene: SceneId } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const [nearDoor, setNearDoor] = useState<Store | null>(null);
   const [scene, setScene] = useState<SceneId>("street");
   const [nearMealId, setNearMealId] = useState<string | null>(null);
+  useTouchOrdering(canvasRef, gameRef, scene, canOrder && controlsEnabled, onPickProduct);
   const cbRef = useRef({ onSceneChange, onMove, onPickProduct, onNearProduct });
   cbRef.current = { onSceneChange, onMove, onPickProduct, onNearProduct };
 
@@ -84,24 +86,9 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
 
   return (
     <div className="stage" ref={wrapRef}>
-      <canvas ref={canvasRef} className="pixel game-canvas" aria-label="午餐小鎮街景，可用方向鍵、WASD 或觸控搖桿移動；店內餐點可直接點選"
-        onPointerDown={(e) => {
-          if (!e.isPrimary || e.button !== 0 || !controlsEnabled) return;
-          tapStart.current = { id: e.pointerId, x: e.clientX, y: e.clientY, at: performance.now(), scene };
-        }}
-        onPointerMove={(e) => {
-          const start = tapStart.current;
-          if (start && start.id === e.pointerId && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) tapStart.current = null;
-        }}
-        onPointerCancel={() => { tapStart.current = null; }}
-        onPointerLeave={() => { tapStart.current = null; }}
-        onPointerUp={(e) => {
-          const start = tapStart.current; tapStart.current = null;
-          if (!start || start.id !== e.pointerId || start.scene !== scene || !canOrder || !controlsEnabled
-            || performance.now() - start.at > 600 || Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) return;
-          const id = gameRef.current?.productAt(e.clientX, e.clientY);
-          if (id) onPickProduct(id);
-        }} />
+      <VirtualJoystick disabled={!controlsEnabled} scene={scene} onMove={(x, y) => gameRef.current?.setTouchInput(x, y)} />
+      <div className="touch-hint">{inShop ? "點餐點圖案 ＋1，也可展開菜單" : "拖動搖桿逛街，或在面板選店家"}</div>
+      <canvas ref={canvasRef} className="pixel" aria-label="午餐小鎮街景，用方向鍵或 WASD 移動角色" />
       {inShop && (
         <button className="btn back" onClick={() => gameRef.current?.leaveStore()}>
           ← 返回街道
@@ -124,8 +111,6 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           {canOrder ? <><span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>加一份「{nearMeal.name}」NT${nearMeal.priceTwd}</> : `「${nearMeal.name}」目前不能點餐`}
         </button>
       )}
-      <VirtualJoystick disabled={!controlsEnabled} scene={scene} onMove={(x, y) => gameRef.current?.setTouchInput(x, y)} />
-      <div className="touch-hint">{inShop ? "點餐點圖案 ＋1，也可展開菜單" : "拖動搖桿逛街，或在面板選店家"}</div>
       <div className="hint">{inShop ? "走到陳列台的商品前按 Enter 加一份・踩出口地墊或按 Esc 回街上" : "方向鍵／WASD 移動・走進店門就能進店"}</div>
     </div>
   );
