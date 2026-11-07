@@ -11,7 +11,7 @@ import { roomGateway } from "../adapters/http";
 import { errorText, newRequestId } from "../api";
 import type { Game } from "../game/game";
 import { GameView } from "../game/GameView";
-import { deliveryForStore, GroupTotals, MenuPanel, MyOrder, OrderBar, PeopleDetail, RoomOrderStatus } from "../ordering/panels";
+import { deliveryForStore, GroupTotals, MenuPanel, MyOrder, OrderBar, PeopleDetail, RoomOrderStatus, StreetMenuPanel } from "../ordering/panels";
 import { PaymentCard, PaymentReminder, PaymentSettings } from "../ordering/payments";
 import { useRoom } from "../state/useRoom";
 import { AvatarPicker, CopyButton, Modal, TopBar, copyText, money } from "../ui";
@@ -119,6 +119,9 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
   const pastDeadline = deadlinePassed(snap, now);
   const canEdit = !closed && !pastDeadline && conn === "online" && !resolving;
   const store = scene.startsWith("shop:") ? snap.catalog.stores.find((s) => s.sceneId === scene) : undefined;
+  // 不在本團的店（#78）：可以進店看菜單，但不能點餐。
+  const streetStore = !store && scene.startsWith("shop:") ? snap.streetStores?.find((s) => `shop:${s.id}` === scene) : undefined;
+  const inShop = !!store || !!streetStore;
   const online = Math.max(1, presence.players.length);
   const inviteUrl = `${location.origin}/r/${snap.room.id}`;
 
@@ -265,9 +268,9 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
           {closed && <div className="banner info">已收單，訂單已鎖定，不能再修改</div>}
           <RoomDeadlinePanel snap={snap} now={now} isOwner={isOwner} online={conn === "online"}
             onSnapshot={room.applySnapshot} say={room.say} />
-          {!store && !isOwner && <PaymentCard snap={snap} busy={paymentBusy || conn !== "online"}
+          {!inShop && !isOwner && <PaymentCard snap={snap} busy={paymentBusy || conn !== "online"}
             onReport={() => void paymentAction(() => roomGateway.reportPayment(snap.room.id))} />}
-          {closed && !store && <RoomOrderStatus snap={snap} />}
+          {closed && !inShop && <RoomOrderStatus snap={snap} />}
           {showFeedback && feedback && (
             <div className={`banner ${feedback.kind}`} role="status">
               {feedback.kind === "ok" ? "✔" : feedback.kind === "error" ? "!" : "i"} {feedback.text}
@@ -285,6 +288,8 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
                 {ownerCloseAction}
               </div>
             </>
+          ) : streetStore ? (
+            <StreetMenuPanel key={streetStore.id} store={streetStore} focusMealId={nearMealId} />
           ) : (
             <>
               <div className="tabs" role="tablist">

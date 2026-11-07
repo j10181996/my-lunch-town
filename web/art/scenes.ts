@@ -398,7 +398,7 @@ function shrub(c: Ctx2D, x: number, y: number) {
 }
 type StreetFront = Pick<Store, "id" | "name" | "styleKey" | "lotIndex">;
 
-/** others：不在本團的店，畫成休息中的店面並標示「不在本團」，不提供進店入口。 */
+/** others：不在本團的店，畫成休息中的店面並標示「不在本團」；可以進店看菜單，但不能點餐（#78）。 */
 export function buildStreet(stores: StreetFront[], restingIds: Set<string> = new Set(), others: StreetFront[] = []): SceneArt {
   const background = makeCanvas(STREET_W, STREET_H), foreground = makeCanvas(STREET_W, STREET_H);
   const c = ctxOf(background), f = ctxOf(foreground);

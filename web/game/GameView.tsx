@@ -84,7 +84,10 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
   const [nearDoor, setNearDoor] = useState<Store | null>(null);
   const [scene, setScene] = useState<SceneId>("street");
   const [nearMealId, setNearMealId] = useState<string | null>(null);
-  useTouchOrdering(canvasRef, gameRef, scene, canOrder && controlsEnabled, onPickProduct);
+  const inShop = scene !== "street";
+  /** 不在本團的店（#78）：可以進店看陳列台，但不能點餐。 */
+  const viewOnly = inShop && !snap.catalog.stores.some((s) => s.sceneId === scene);
+  useTouchOrdering(canvasRef, gameRef, scene, canOrder && controlsEnabled && !viewOnly, onPickProduct);
   const cbRef = useRef({ onSceneChange, onMove, onPickProduct, onNearProduct });
   cbRef.current = { onSceneChange, onMove, onPickProduct, onNearProduct };
 
@@ -110,7 +113,8 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
         setNearMealId(id);
         cbRef.current.onNearProduct(id);
       },
-      onPickProduct: (id) => cbRef.current.onPickProduct(id),
+      // 只有本團的餐點能加點；不在本團的店按 Enter 不送出。
+      onPickProduct: (id) => { if (snapRef.current.catalog.meals.some((m) => m.id === id)) cbRef.current.onPickProduct(id); },
     });
     gameRef.current = game;
     onReady(game);
@@ -160,13 +164,14 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     gameRef.current?.setCollectibles(collectibles(snap.room.id, snap.me.id).filter((item) => !collection.items.includes(item.id)));
   }, [collection, social, snap.room.id, snap.me.id]);
 
-  const inShop = scene !== "street";
-  const nearMeal = inShop && nearMealId ? snap.catalog.meals.find((m) => m.id === nearMealId) : undefined;
+  const nearMeal = inShop && nearMealId
+    ? [...snap.catalog.meals, ...(snap.streetStores ?? []).flatMap((s) => s.meals ?? [])].find((m) => m.id === nearMealId)
+    : undefined;
 
   return (
     <div className="stage" ref={wrapRef}>
       <VirtualJoystick disabled={!controlsEnabled} scene={scene} onMove={(x, y) => gameRef.current?.setTouchInput(x, y)} />
-      <div className="touch-hint">{inShop ? (solo ? "逛逛陳列台，喜歡就用這家開團" : "點餐點圖案 ＋1，也可展開菜單") : "拖動搖桿逛街，或在面板選店家"}</div>
+      <div className="touch-hint">{inShop ? (solo ? "逛逛陳列台，喜歡就用這家開團" : viewOnly ? "這家不在本團，只能看菜單" : "點餐點圖案 ＋1，也可展開菜單") : "拖動搖桿逛街，或在面板選店家"}</div>
       <canvas ref={canvasRef} className="pixel" aria-label="午餐小鎮街景，用方向鍵或 WASD 移動角色" />
       <NewcomerQuest achievements={collection.achievements} onGuide={(step) => {
         setBagOpen(false);
@@ -220,7 +225,10 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           <span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>喜歡「{nearMeal.name}」NT${nearMeal.priceTwd}？用這家開團
         </button>
       )}
-      {nearMeal && !solo && (
+      {nearMeal && !solo && viewOnly && (
+        <button className="btn primary stage-action" disabled>「{nearMeal.name}」NT${nearMeal.priceTwd}・不在本團，不能點餐</button>
+      )}
+      {nearMeal && !solo && !viewOnly && (
         <button
           className="btn primary stage-action"
           disabled={!canOrder}
@@ -229,7 +237,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           {canOrder ? <><span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>加一份「{nearMeal.name}」NT${nearMeal.priceTwd}</> : `「${nearMeal.name}」目前不能點餐`}
         </button>
       )}
-      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
+      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・踩出口地墊或按 Esc 回街上" : viewOnly ? "這家不在本團，只能看菜單・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
     </div>
   );
 }

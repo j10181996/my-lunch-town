@@ -161,15 +161,34 @@ export function loadItems(db: Db, roomId: string, memberId?: string): OrderItem[
   }));
 }
 
-/** 街上目前其他店面；本團店家佔用的店面格以凍結資料為準。 */
+/** 街上目前其他店面與其供應中餐點；本團店家佔用的店面格以凍結資料為準。 */
 function streetStores(db: Db, catalog: Catalog): StreetStore[] {
   const taken = new Set(catalog.stores.map((s) => s.lotIndex));
   const ids = new Set(catalog.stores.map((s) => s.id));
   const rows = db.prepare("SELECT id, name, style_key, lot_index FROM stores ORDER BY lot_index").all() as
     Array<{ id: string; name: string; style_key: string; lot_index: number }>;
-  return rows
-    .filter((r) => !ids.has(r.id) && !taken.has(r.lot_index))
-    .map((r) => ({ id: r.id, name: r.name, styleKey: r.style_key, lotIndex: r.lot_index }));
+  const others = rows.filter((r) => !ids.has(r.id) && !taken.has(r.lot_index));
+  const shown = new Set(others.map((r) => r.id));
+  const meals = (db
+    .prepare("SELECT id, store_id, name, price_twd, image_key, tags_json FROM meals WHERE available = 1 ORDER BY sort_order, id")
+    .all() as Array<{ id: string; store_id: string; name: string; price_twd: number; image_key: string; tags_json: string }>)
+    .filter((m) => shown.has(m.store_id));
+  return others.map((r) => ({
+    id: r.id,
+    name: r.name,
+    styleKey: r.style_key,
+    lotIndex: r.lot_index,
+    // 只供進店瀏覽，不在本團的餐點仍無法下單（order 只認 room_meals）。
+    meals: meals.filter((m) => m.store_id === r.id).map((m) => ({
+      id: m.id,
+      storeId: m.store_id,
+      name: m.name,
+      priceTwd: m.price_twd,
+      imageAssetKey: m.image_key,
+      available: true,
+      tags: JSON.parse(m.tags_json) as string[],
+    })),
+  }));
 }
 
 function myPayment(db: Db, roomId: string, memberId: string, amountTwd: number) {
