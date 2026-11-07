@@ -29,10 +29,11 @@ HOST=127.0.0.1 SEED_FILE=shared/catalog/seed.json DEMO_KEY= npm run dev
 
 - **路由只有一份**：`server/routes.ts` 同時給 Fastify 與 Worker（`worker/router.ts`）使用。handler 只能用 `req.sid`、`req.body`、`req.params`、`reply.type().send()`；路徑參數只能是 `:name`。
 - **資料庫在 Worker 會被替換**：建置時 `server/db.ts` 會換成 `worker/db.ts`（sql.js）。領域模組以相對路徑 `../db` 匯入，只用同步的 `db.prepare().get/all/run` 與 `db.exec`，不可使用 `node:fs`、`node:path` 等 Worker 沒有的 API（`node:crypto` 可用）。
-- **業務表 schema 不在 Drizzle**：在 `server/db.ts` 的 `SCHEMA` 與 `migrate*`。`db/schema.ts`／`drizzle/` 只管 D1 外層的 `app_state`、`live_presence`。Worker 不會執行 `migrateDelivery`／`migratePayment`，新表或新欄位要寫成可重複執行的遷移，並讓 `worker/db.ts` 的 `openSnapshot` 也套用（照 `server/rooms/social-schema.ts` 的模式），否則已部署的 D1 image 拿不到。
+- **業務表 schema 不在 Drizzle**：在 `server/db.ts` 的 `SCHEMA` 與 `migrate*`。`db/schema.ts`／`drizzle/` 只管 D1 外層的 `app_state`、`live_presence`。Worker 不會執行 `migrateDelivery`／`migratePayment`，新表或新欄位要寫成可重複執行的遷移，並讓 `worker/db.ts` 的 `openSnapshot` 也呼叫（照 `server/store-hours-schema.ts` 或 `server/rooms/social-schema.ts` 的模式），否則已部署的 D1 image 拿不到。
 - **即時通道是兩套**：Node 在 `server/realtime/realtime.ts`，Sites 在 `worker/index.ts` 的 `synchronize` 與 `web/adapters/sites-live.ts`。新增即時事件兩邊都要處理。
 - **寫入規則**：改動團單的寫入包在 `withWriteTx`，成功後 `bumpRevision`，提交後才呼叫 `ctx.events`。可能重送的寫入帶 `requestId` 並寫入 `processed_requests` 去重；去重檢查排在收單檢查之前。
 - **錯誤**：領域模組用 `err.*`（`server/db-shared.ts`）；`shared/` 的純函式不得依賴 server，改拋帶 `code: "INVALID_INPUT"` 的 Error。API 錯誤回 `{ code, message }`，`message` 為繁中使用者文字。
+- **前端路由兩處登記**：新增頁面路徑時，`web/main.tsx` 與 `worker/assets.ts` 的 `servePageOrAsset` 都要加，否則 Sites 上直接開啟該網址會失敗。
 - **前端**：API 呼叫只經過 `web/adapters/http.ts` 的 gateway，元件不直接 `fetch`。即時同步依 `import.meta.env.VITE_SITES` 切換。
 
 ## 慣例

@@ -9,7 +9,7 @@
 程式分成四塊，依賴方向是單向的：`web` 與 `server` 都依賴 `shared`，`worker` 重用 `server`，`shared` 不依賴任何一方。
 
 ```text
-shared/   前後端共用：型別契約、計價、外送、收款驗證、街區常數、表情清單（純函式）
+shared/   前後端共用：型別契約、計價、外送、收款驗證、營業時間、街區常數、表情清單（純函式）
 server/   訂餐領域邏輯與 Node 執行環境（Fastify 路由、node:sqlite、Socket.IO）
 worker/   Sites 執行環境：把 server/ 的路由與領域模組包進 Worker，改用 sql.js + D1
 web/      React 前端：頁面、遊戲畫面（Canvas）、原創像素素材、API 轉接層
@@ -94,6 +94,9 @@ API 錯誤一律回 `{ code, message }`，`code` 是 `shared/contracts.ts` 的 `
 | `/` | `pages/Home.tsx` | 一般使用者入口：開團、加入 |
 | `/r/:roomId` | `pages/RoomPage.tsx` | 團內：遊戲畫面 + 點餐、彙總、收款面板 |
 | `/shop`、`/shop/new`、`/shop/:storeId` | `shop-admin/` | 店家入口、開店、後台 |
+| `/management/stores` | `management/StoreList.tsx` | 管理者入口：全部店家摘要 |
+
+新增頁面路徑時，除了 `web/main.tsx`，也要把路徑加進 `worker/assets.ts` 的 `servePageOrAsset`。Sites 不依賴 SPA fallback，不在清單上的路徑直接開啟或重新整理會找不到頁面；Node 模式由 `server/app.ts` 的 not-found handler 統一回 `index.html`，不需另外處理。
 
 所有 API 呼叫集中在 `web/adapters/http.ts` 的 `roomGateway` 與 `storeGateway`。即時同步依建置旗標 `VITE_SITES` 切換：未設定時用 Socket.IO，`npm run build` 會設 `VITE_SITES=1`，改走 `web/adapters/sites-live.ts` 的 `/live` 輪詢。元件不應直接呼叫 `fetch` 或 Socket.IO。
 
@@ -117,9 +120,9 @@ NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；�
 
 業務表的 schema 在 `server/db.ts` 的 `SCHEMA` 字串與 `migrate*` 函式，不在 Drizzle。Drizzle 的 `db/schema.ts` 只管 D1 外層的 `app_state` 與 `live_presence`。
 
-Node 的 `openDb` 每次啟動都會跑 `migrateDelivery`、`migratePayment`，但 Worker 的 `openSnapshot` 只套用 `SOCIAL_SCHEMA`。已部署的 D1 image 是舊版建立的，不會自動得到新欄位；`worker/seed.bin` 只在 D1 尚未初始化時使用。所以：
+Node 的 `openDb` 每次啟動都會跑 `migrateDelivery`、`migratePayment`，但 Worker 的 `openSnapshot` 不會；它只套用 `SOCIAL_SCHEMA` 與 `migrateStoreHours`。已部署的 D1 image 是舊版建立的，不會自動得到新欄位；`worker/seed.bin` 只在 D1 尚未初始化時使用。所以：
 
-- 新表或新欄位要寫成可重複執行的遷移（`CREATE TABLE IF NOT EXISTS`、先查 `PRAGMA table_info` 再 `ALTER TABLE`），並確保 `worker/db.ts` 的 `openSnapshot` 也會套用。可參考 `server/rooms/social-schema.ts` 的做法：一份 SQL 常數，`openDb` 與 `openSnapshot` 都執行。
+- 新表或新欄位要寫成可重複執行的遷移（`CREATE TABLE IF NOT EXISTS`、先查 `PRAGMA table_info` 再 `ALTER TABLE`），並確保 `worker/db.ts` 的 `openSnapshot` 也會套用。做法是把遷移獨立成一個檔案，由 `openDb` 與 `openSnapshot` 都呼叫。新表可參考 `server/rooms/social-schema.ts`（一份 `CREATE TABLE IF NOT EXISTS` 常數）；新欄位可參考 `server/store-hours-schema.ts` 的 `migrateStoreHours`（先查 `PRAGMA table_info`，缺欄才在交易內 `ALTER TABLE`）。Worker 下一筆成功寫入時，升級後的 image 會隨交易一起寫回 D1。
 - 遷移不得覆蓋或回填既有資料，除非有明確需求。
 
 ### 新增即時事件
@@ -135,12 +138,13 @@ Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realti
 | 指令 | 內容 | 需要 |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc --noEmit`，涵蓋 shared、server、web、worker | — |
-| `npm test` | `server/test/` 的 Vitest：以 `openDb(":memory:", SAMPLE_SEED)` 與 `app.inject` 跑 API | — |
+| `npm test` | Vitest：`server/test/` 以 `openDb(":memory:", SAMPLE_SEED)` 與 `app.inject` 跑 API；`worker/assets.test.ts` 驗證 Sites 頁面路由 | — |
 | `npm run build` | Sites 建置，同時驗證 Worker 打包與 sql.js 修補 | — |
 | `scripts/test-sites.mjs` | 對本機 Wrangler 跑多使用者 API 流程 | 本機 Worker |
 | `scripts/smoke.mjs` | 三個瀏覽器工作階段：開店、開團、點餐、收單、接單、收款 | Node 建置版 + Chrome |
 | `scripts/smoke-m4.mjs` | 雙瀏覽器：表情、NPC、收藏、換裝、點餐 | 開發伺服器 + Chrome |
+| `scripts/smoke-mobile.mjs` | 手機尺寸與真觸控事件：搖桿走路、觸控點餐、面板收合 | 開發伺服器 + Chrome |
 
-`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關。
+`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限。
 
 瀏覽器與 Sites 腳本只允許對 `localhost`／`127.0.0.1` 執行，並會寫入測試資料，請用獨立的 `DATA_DIR` 或本機 D1。
