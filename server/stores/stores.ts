@@ -26,6 +26,32 @@ interface StoreRow {
 
 const LOT_INDEXES = LOTS.map((l) => l.index);
 
+/** 舊 snapshot 在第一次 Sites 請求時補齊；Node 新庫已由 db.ts 建立。 */
+export function ensureStoreAccessSchema(db: Db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS store_managers (
+    store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (store_id, session_id)
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS store_invites (
+    id TEXT PRIMARY KEY,
+    store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    target_user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_by_session_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    accepted_at INTEGER,
+    accepted_by_session_id TEXT,
+    revoked_at INTEGER
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS store_invites_store_idx ON store_invites(store_id, created_at DESC)");
+  // 舊的 Node 管理者不會在遷移後失去店家；撤銷時會一併清掉 owner_session_id。
+  db.prepare(`INSERT OR IGNORE INTO store_managers (store_id, session_id, created_at)
+    SELECT id, owner_session_id, ? FROM stores WHERE owner_session_id IS NOT NULL`).run(Date.now());
+}
+
 export function getTown(db: Db): TownLot[] {
   const rows = db.prepare("SELECT id, name, style_key, lot_index, status FROM stores").all() as unknown as StoreRow[];
   return LOTS.map((lot) => {
@@ -73,8 +99,25 @@ function loadProfile(db: Db, storeId: string): StoreProfile {
 export function requireOwner(db: Db, sessionId: string, storeId: string): StoreRow {
   const s = db.prepare("SELECT * FROM stores WHERE id = ?").get(storeId) as StoreRow | undefined;
   if (!s) throw storeNotFound();
-  if (s.owner_session_id !== sessionId) throw err.notAllowed("這不是你的店；可用管理碼認領");
+  const manager = db.prepare("SELECT 1 AS ok FROM store_managers WHERE store_id = ? AND session_id = ?")
+    .get(storeId, sessionId) as { ok: number } | undefined;
+  if (s.owner_session_id !== sessionId && !manager) throw err.notAllowed("這不是你受邀管理的店家");
   return s;
+}
+
+export function managerStoreIds(db: Db, sessionId: string) {
+  return (db.prepare(`SELECT DISTINCT s.id FROM stores s
+    LEFT JOIN store_managers m ON m.store_id = s.id
+    WHERE s.owner_session_id = ? OR m.session_id = ? ORDER BY s.lot_index`).all(sessionId, sessionId) as Array<{ id: string }>).map((row) => row.id);
+}
+
+export function removeStoreManager(db: Db, storeId: string, sessionId: string) {
+  return withWriteTx(db, () => {
+    if (!db.prepare("SELECT id FROM stores WHERE id = ?").get(storeId)) throw storeNotFound();
+    db.prepare("DELETE FROM store_managers WHERE store_id = ? AND session_id = ?").run(storeId, sessionId);
+    // owner_session_id 是舊流程的相容欄位，撤銷時也必須失效，避免它繞過管理者表。
+    db.prepare("UPDATE stores SET owner_session_id = NULL WHERE id = ? AND owner_session_id = ?").run(storeId, sessionId);
+  });
 }
 
 /** 契約的 ErrorCode 沒有店家專用碼；以 INVALID_INPUT 搭配 HTTP 404 表示。 */
@@ -110,6 +153,8 @@ export function createStore(db: Db, sessionId: string, input: CreateStoreInput):
     db.prepare(
       "INSERT INTO stores (id, name, style_key, lot_index, status, owner_session_id, manage_key_hash, is_sample, updated_at) VALUES (?, ?, ?, ?, 'resting', ?, ?, 0, ?)",
     ).run(id, name, styleKey, Number(lotIndex), sessionId, hashKey(manageKey), Date.now());
+    db.prepare("INSERT OR IGNORE INTO store_managers (store_id, session_id, created_at) VALUES (?, ?, ?)")
+      .run(id, sessionId, Date.now());
     db.prepare(
       "INSERT INTO processed_requests (scope, actor_id, request_id, payload_digest, result_json) VALUES ('create-store', ?, ?, ?, ?)",
     ).run(sessionId, reqId, digest, JSON.stringify({ storeId: id }));
@@ -118,7 +163,9 @@ export function createStore(db: Db, sessionId: string, input: CreateStoreInput):
 }
 
 export function myStores(db: Db, sessionId: string): StoreProfile[] {
-  const rows = db.prepare("SELECT id FROM stores WHERE owner_session_id = ? ORDER BY lot_index").all(sessionId) as Array<{ id: string }>;
+  const rows = db.prepare(`SELECT DISTINCT s.id FROM stores s
+    LEFT JOIN store_managers m ON m.store_id = s.id
+    WHERE s.owner_session_id = ? OR m.session_id = ? ORDER BY s.lot_index`).all(sessionId, sessionId) as Array<{ id: string }>;
   return rows.map((r) => loadProfile(db, r.id));
 }
 
@@ -138,12 +185,17 @@ export function claimStore(db: Db, sessionId: string, manageKey: unknown, demoKe
       ).filter((s) => s.manage_key_hash === hashKey(`demo-${s.id}`));
       if (seeded.length === 0) throw err.notAllowed("目前沒有可用展示碼認領的店家");
       const claim = db.prepare("UPDATE stores SET owner_session_id = ? WHERE id = ?");
-      for (const s of seeded) claim.run(sessionId, s.id);
+      const grant = db.prepare("INSERT OR IGNORE INTO store_managers (store_id, session_id, created_at) VALUES (?, ?, ?)");
+      const clearManagers = db.prepare("DELETE FROM store_managers WHERE store_id = ?");
+      for (const s of seeded) { clearManagers.run(s.id); claim.run(sessionId, s.id); grant.run(s.id, sessionId, Date.now()); }
       return loadProfile(db, seeded[0].id);
     }
     const row = db.prepare("SELECT id FROM stores WHERE manage_key_hash = ?").get(hashKey(key)) as { id: string } | undefined;
     if (!row) throw err.notAllowed("管理碼不正確");
+    db.prepare("DELETE FROM store_managers WHERE store_id = ?").run(row.id);
     db.prepare("UPDATE stores SET owner_session_id = ? WHERE id = ?").run(sessionId, row.id);
+    db.prepare("INSERT OR IGNORE INTO store_managers (store_id, session_id, created_at) VALUES (?, ?, ?)")
+      .run(row.id, sessionId, Date.now());
     return loadProfile(db, row.id);
   });
 }

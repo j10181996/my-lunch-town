@@ -4,9 +4,13 @@ import { storeGateway } from "../adapters/http";
 import { errorText } from "../api";
 import { link, navigate } from "../router";
 import { TopBar } from "../ui";
+import { isSitesBuild, useAuth } from "../auth";
 
 /** 店家入口：開新店、進入自己的店、用管理碼找回店。與揪團者的首頁分開。 */
 export function ShopHome() {
+  const auth = useAuth();
+  const canCreateStore = !isSitesBuild || auth?.admin === true;
+  const canClaimStore = !isSitesBuild;
   const [mine, setMine] = useState<StoreProfile[]>([]);
   const [key, setKey] = useState("");
   const [claimError, setClaimError] = useState("");
@@ -38,13 +42,15 @@ export function ShopHome() {
       </TopBar>
       <main className="page-body" style={{ maxWidth: 760 }}>
         <section className="panel">
-          <h2>我要開店</h2>
-          <p className="muted" style={{ margin: 0 }}>
-            在小鎮租一個店面、擺上點陣菜單。營業中的店會出現在之後開的每一團。
-          </p>
-          <a className="btn green big" {...link("/shop/new")}>
-            開一家新店
-          </a>
+          {canCreateStore && <>
+            <h2>我要開店</h2>
+            <p className="muted" style={{ margin: 0 }}>
+              在小鎮租一個店面、擺上點陣菜單。營業中的店會出現在之後開的每一團。
+            </p>
+            <a className="btn green big" {...link("/shop/new")}>
+              開一家新店
+            </a>
+          </>}
           {mine.length > 0 && (
             <div className="stack">
               <strong>我的店</strong>
@@ -56,7 +62,7 @@ export function ShopHome() {
               ))}
             </div>
           )}
-          <form className="stack" onSubmit={claim}>
+          {canClaimStore && <form className="stack" onSubmit={claim}>
             <label className="field">
               用管理碼找回我的店 <small>換裝置或清除瀏覽資料後使用</small>
               <div className="row" style={{ flexWrap: "nowrap" }}>
@@ -67,7 +73,7 @@ export function ShopHome() {
               </div>
             </label>
             {claimError && <div className="banner error">{claimError}</div>}
-          </form>
+          </form>}
         </section>
       </main>
     </div>

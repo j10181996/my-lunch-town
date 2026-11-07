@@ -112,6 +112,29 @@ CREATE TABLE IF NOT EXISTS processed_requests (
   result_json TEXT NOT NULL,
   PRIMARY KEY (scope, actor_id, request_id)
 );
+CREATE TABLE IF NOT EXISTS authenticated_users (
+  user_id TEXT PRIMARY KEY,
+  last_seen_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS store_managers (
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (store_id, session_id)
+);
+CREATE TABLE IF NOT EXISTS store_invites (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  target_user_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_by_session_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  accepted_at INTEGER,
+  accepted_by_session_id TEXT,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS store_invites_store_idx ON store_invites(store_id, created_at DESC);
 `;
 
 const here = dirname(fileURLToPath(import.meta.url));

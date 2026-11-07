@@ -2,7 +2,8 @@ import type { MoveInput, PlayerPresence } from "../shared/contracts";
 import type { Ctx } from "../server/context";
 import { requireMember } from "../server/rooms/rooms";
 import { requireOwner } from "../server/stores/stores";
-import { randomId } from "../server/util";
+import { ensureStoreAccessSchema } from "../server/stores/stores";
+import { ensureAuthSchema, recordActor, requireActor, requireInternalMember, resolveActor, type AuthEnv } from "../server/auth";
 import { AppError, err, exportSnapshot, openSnapshot } from "./db";
 import { dispatch } from "./router";
 
@@ -13,13 +14,12 @@ interface Statement {
   all<T>(): Promise<{ results: T[] }>;
   run(): Promise<{ meta: { changes: number } }>;
 }
-interface Env {
+interface Env extends AuthEnv {
   DB: { prepare(sql: string): Statement };
   ASSETS: { fetch(request: Request): Promise<Response> };
   DEMO_KEY?: string;
 }
 interface Stored { revision: number; bytes: number[] | ArrayBuffer }
-const SID_RE = /^[a-z0-9]{24}$/;
 const MAX_SNAPSHOT_BYTES = 1_900_000; // D1's per-value limit is 2 MB.
 const PRESENCE_TTL = 10_000;
 
@@ -49,6 +49,7 @@ async function load(env: Env): Promise<Stored> {
 async function synchronize(env: Env, ctx: Ctx, sid: string, path: string, body: unknown, revision: number) {
   const roomMatch = path.match(/^\/api\/rooms\/([\w-]+)\/live$/);
   if (roomMatch) {
+    requireInternalMember(ctx);
     const roomId = roomMatch[1];
     const { room, me } = requireMember(ctx.db, roomId, sid);
     const input = body as { clientId?: string; move?: unknown; leave?: boolean; after?: number } | null;
@@ -80,6 +81,7 @@ async function synchronize(env: Env, ctx: Ctx, sid: string, path: string, body: 
   }
   const storeMatch = path.match(/^\/api\/stores\/([\w-]+)\/live$/);
   if (storeMatch) {
+    requireActor(ctx);
     requireOwner(ctx.db, sid, storeMatch[1]);
     return { storeId: storeMatch[1], revision };
   }
@@ -97,9 +99,10 @@ export default {
         const origin = request.headers.get("origin");
         if (origin && origin !== url.origin) throw err.notAllowed("請從本站操作");
       }
-      const existing = request.headers.get("cookie")?.match(/(?:^|;\s*)lt_sid=([^;]+)/)?.[1];
-      const sid = existing && SID_RE.test(existing) ? existing : randomId(24);
-      if (sid !== existing) headers.set("set-cookie", `lt_sid=${sid}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=2592000`);
+      // Sites 只信任平台在伺服器端注入的 identity headers。絕不接受或延續 lt_sid Cookie，
+      // 因此同一個 ChatGPT 帳號跨瀏覽器仍是同一個人，偽造 Cookie 也不能取得權限。
+      const actor = await resolveActor(request.headers, env);
+      const sid = actor?.sessionId ?? "";
       let body: unknown;
       if (request.method !== "GET") {
         if (Number(request.headers.get("content-length")) > 65536) throw err.invalid("請求內容過大");
@@ -111,8 +114,13 @@ export default {
         const stored = await load(env);
         const { db, raw } = await openSnapshot(stored.bytes);
         try {
-          db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").run(sid, Date.now());
-          const ctx: Ctx = { db, events: {
+          ensureAuthSchema(db);
+          ensureStoreAccessSchema(db);
+          if (actor) {
+            db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").run(sid, Date.now());
+            recordActor(db, actor);
+          }
+          const ctx: Ctx = { db, platformAuth: true, actor, events: {
             roomChanged() {}, storeOrdersChanged() {},
             bubble(roomId, memberId, text) {
               db.prepare("INSERT INTO live_bubbles (room_id, member_id, text, created_at) VALUES (?, ?, ?, ?)").run(roomId, memberId, text, Date.now());

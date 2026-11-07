@@ -6,6 +6,7 @@ import { errorText, newRequestId } from "../api";
 import { link, navigate } from "../router";
 import { CopyButton, Modal, Storefront, TopBar } from "../ui";
 import { TownMap } from "../TownMap";
+import { isSitesBuild } from "../auth";
 
 export function LotPicker({ town, value, onChange, selfId }: { town: TownLot[]; value: number | null; onChange(i: number): void; selfId?: string }) {
   return (
@@ -114,8 +115,10 @@ export function ShopNew() {
       </main>
 
       {result && (
-        <Modal title="開店成功！請保存管理碼">
-          {result.manageKey ? (
+        <Modal title={isSitesBuild ? "開店成功！" : "開店成功！請保存管理碼"}>
+          {isSitesBuild ? (
+            <p style={{ margin: 0 }}>你的 ChatGPT 帳號已取得這家店的管理權。其他店員請由平台管理員發出店家邀請。</p>
+          ) : result.manageKey ? (
             <>
               <p style={{ margin: 0 }}>
                 這組管理碼<strong>只會顯示這一次</strong>。換裝置或清除瀏覽資料後，要靠它找回「{result.profile.name}」的後台。

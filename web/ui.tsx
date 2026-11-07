@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { mealImageUrl } from "./art/meals";
 import { storefrontPreview } from "./art/scenes";
 import { link } from "./router";
+import { AccountControls } from "./auth";
 
 export function money(n: number) {
   return `NT$${n.toLocaleString("en-US")}`;
@@ -33,6 +34,7 @@ export function TopBar({ children }: { children?: ReactNode }) {
     <header className="topbar">
       <Logo />
       {children}
+      <AccountControls />
     </header>
   );
 }

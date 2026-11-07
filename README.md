@@ -2,7 +2,7 @@
 
 公司內部的多人點陣訂餐平台。團主分享團網址，團員操控角色逛店、加減餐點，團主彙總收單，店家在後台處理訂單。
 
-目前保留 lunch-town 的 React、Vite、Fastify、Socket.IO 與 Node SQLite 開發模式，並已新增 Workers／D1 的 Sites 部署路徑。ChatGPT 登入、內部成員授權與店家邀請制仍由對應 issues 追蹤。
+目前保留 lunch-town 的 React、Vite、Fastify、Socket.IO 與 Node SQLite 開發模式，並提供 Workers／D1 的 Sites 部署路徑。Sites 使用 ChatGPT 登入、明確的內部 allowlist，以及店家邀請制。
 
 ## 本機啟動
 
@@ -17,7 +17,7 @@ HOST=127.0.0.1 SEED_FILE=shared/catalog/seed.json DEMO_KEY= npm run dev
 
 此命令使用虛構店家種子；只有空資料庫才會寫入種子，預設資料夾是 `data/`。如需隔離資料，可設定 `DATA_DIR` 指向另一個目錄，請勿刪除有價值的既有資料來切換種子。
 
-`DEMO_KEY=` 僅停用一次認領所有種子店家的展示入口；固定種子店家管理碼及匿名流程仍存在，須由 #8、#21、#38 處理，不能把目前版本當作可正式上線的授權系統。
+`DEMO_KEY=` 僅影響本機展示模式的一次認領入口。固定種子店家管理碼和匿名流程只為既有本機測試保留，不能用來驗證 Sites 的正式權限設計。
 
 ## Node 模式建置及執行
 
@@ -44,9 +44,9 @@ Sites 使用 SQL.js 執行同一份訂餐領域邏輯，將 SQLite image 存在 
 
 此模式適合活動展示與小型團購；每次交易需讀寫完整 image，並非大型服務的逐表 D1 模型。為遵守 D1 單值 2 MB 限制，image 上限設為 1,900,000 bytes，超過時會拒絕本次寫入並保留既有資料；長期或大量使用應改用分片 image 或逐表交易模型。業務表位於 image 內，Sites 的 D1 表格檢視器僅會顯示 envelope 與在線位置。初始 image 使用 `shared/catalog/stores.taichung.json`，只在 D1 尚未初始化時載入，重新部署不會覆蓋資料。
 
-Sites 前端以短輪詢取代 Socket.IO：房間每次完成回應後約 250ms 再同步，店家每秒檢查更新；實際延遲另加網路時間。斷線會顯示離線並自動重試。角色在線資訊存於 D1 `live_presence`，以分頁識別碼區分連線，10 秒未更新即不再顯示；位置不影響訂單版本。伺服器從 Cookie 推導角色身分，重新核對房間與店家權限。
+Sites 前端以短輪詢取代 Socket.IO：房間每次完成回應後約 250ms 再同步，店家每秒檢查更新；實際延遲另加網路時間。斷線會顯示離線並自動重試。角色在線資訊存於 D1 `live_presence`，以分頁識別碼區分連線，10 秒未更新即不再顯示；位置不影響訂單版本。伺服器從 ChatGPT Sites 注入的穩定使用者 ID 推導身分，重新核對內部成員、房間與店家權限；不信任或延續 `lt_sid` Cookie。
 
-工作階段使用 Secure、HttpOnly、SameSite=Lax Cookie。同一瀏覽器會沿用原有身分；跨瀏覽器須重新加入，店家可使用管理碼找回。`DEMO_KEY` 預設為 `demo`，空字串可停用展示用種子店認領；正式公開營運前請自行設定管理方式。收款功能維持原本的人工回報／確認，沒有串接或執行金流。
+ChatGPT 的相同使用者跨瀏覽器會得到同一個領域身分。內部使用者需由 `LUNCH_MEMBER_IDS`／`LUNCH_ADMIN_IDS` 明確允許；店家由管理員發出一次性邀請連結取得個別店家的後台。設定、權限表與操作流程見 [ChatGPT 登入與店家邀請](docs/chatgpt-auth.md)。收款功能維持原本的人工回報／確認，沒有串接或執行金流。
 
 新增 Site 預設為私人；部署不會自動開放任何持有網址者存取。
 
