@@ -2,12 +2,27 @@ import { socialEnabled } from "../rooms/social-schema";
 import type { OrderAck, OrderDeltaInput, OwnerSummary, RoomSnapshot } from "../../shared/contracts";
 import { buildExportText, computeStoreTotals, grandTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
 import { MAX_QTY_PER_MEAL } from "../../shared/town";
+import { lineKeyOf, normalizeNote, optionKeyOf, parseOptionGroups, resolveChoices } from "../../shared/meal-options";
 import type { Ctx } from "../context";
 import { err, withWriteTx, type Db } from "../db";
 import { buildSnapshot, bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems, requireMember } from "../rooms/rooms";
 import { paymentStatus } from "../rooms/payments";
 import { closeInTx, deadlinePassed } from "../rooms/deadline";
 import { requestId as checkRequestId } from "../util";
+
+/**
+ * 去重 digest：沒帶選項與備註時沿用升級前的格式，讓升級前送出的請求重送仍相符。
+ * 有帶時以排序後的選項與正規化備註組成；格式錯誤的內容原樣放入，交易內驗證再拒絕。
+ */
+function orderDigest(input: OrderDeltaInput): string {
+  const base = `${String(input?.mealId)}|${String(input?.delta)}`;
+  const rawChoices = input?.choiceIds;
+  const rawNote = input?.note;
+  const choices = Array.isArray(rawChoices) ? rawChoices.map(String).sort() : rawChoices ?? [];
+  const note = typeof rawNote === "string" ? rawNote.trim().replace(/\s+/g, " ") : rawNote ?? "";
+  if (Array.isArray(choices) && choices.length === 0 && note === "") return base;
+  return JSON.stringify({ base, choices, note });
+}
 
 /**
  * 規格第 10 節：一次 +1/-1 的交易。
@@ -17,7 +32,7 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
   const { db } = ctx;
   const reqId = checkRequestId(input?.requestId);
   requireMember(db, roomId, sessionId);
-  const digest = `${String(input?.mealId)}|${String(input?.delta)}`;
+  const digest = orderDigest(input);
 
   let bubbleText: string | null = null;
   let memberId = "";
@@ -38,38 +53,51 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
     if (typeof input.mealId !== "string") throw err.invalid("缺少餐點");
     if (input.delta !== 1 && input.delta !== -1) throw err.invalid("數量變化只能是 +1 或 -1");
     const meal = db
-      .prepare("SELECT name, price_twd, available FROM room_meals WHERE room_id = ? AND meal_id = ?")
-      .get(roomId, input.mealId) as { name: string; price_twd: number; available: number } | undefined;
+      .prepare("SELECT name, price_twd, available, options_json FROM room_meals WHERE room_id = ? AND meal_id = ?")
+      .get(roomId, input.mealId) as { name: string; price_twd: number; available: number; options_json: string | null } | undefined;
     if (!meal) throw err.mealNotFound();
+    // 選項依開團凍結的菜單驗證與計價；單價 = 餐點價格 + 選項加價。
+    let choiceIds: string[];
+    let surchargeTwd: number;
+    let note: string;
+    try {
+      ({ choiceIds, surchargeTwd } = resolveChoices(parseOptionGroups(meal.options_json), input.choiceIds));
+      note = normalizeNote(input.note);
+    } catch (e) {
+      throw err.invalid((e as Error).message);
+    }
+    const optionKey = optionKeyOf(choiceIds);
+    const line = [roomId, me.id, input.mealId, optionKey, note] as const;
+    const where = "room_id = ? AND member_id = ? AND meal_id = ? AND option_key = ? AND note = ?";
 
-    const cur = db
-      .prepare("SELECT quantity FROM order_items WHERE room_id = ? AND member_id = ? AND meal_id = ?")
-      .get(roomId, me.id, input.mealId) as { quantity: number } | undefined;
+    const cur = db.prepare(`SELECT quantity FROM order_items WHERE ${where}`).get(...line) as { quantity: number } | undefined;
+    // 每人每道餐點的上限跨所有選項組合合計。
+    const mealQty = (db
+      .prepare("SELECT COALESCE(SUM(quantity), 0) AS n FROM order_items WHERE room_id = ? AND member_id = ? AND meal_id = ?")
+      .get(roomId, me.id, input.mealId) as { n: number }).n;
     const before = cur?.quantity ?? 0;
     const after = before + input.delta;
     if (input.delta === 1 && meal.available !== 1) throw err.invalid("這個餐點目前不供應");
     if (after < 0) throw err.invalid("數量已經是零");
-    if (after > MAX_QTY_PER_MEAL) throw err.invalid(`同一餐點每人最多 ${MAX_QTY_PER_MEAL} 份`);
+    if (mealQty + input.delta > MAX_QTY_PER_MEAL) throw err.invalid(`同一餐點每人最多 ${MAX_QTY_PER_MEAL} 份`);
 
     if (after === 0) {
-      db.prepare("DELETE FROM order_items WHERE room_id = ? AND member_id = ? AND meal_id = ?").run(roomId, me.id, input.mealId);
+      db.prepare(`DELETE FROM order_items WHERE ${where}`).run(...line);
     } else if (before === 0) {
       db.prepare(
-        "INSERT INTO order_items (room_id, member_id, meal_id, quantity, unit_price_twd) VALUES (?, ?, ?, ?, ?)",
-      ).run(roomId, me.id, input.mealId, after, meal.price_twd);
+        `INSERT INTO order_items (room_id, member_id, meal_id, option_key, note, quantity, unit_price_twd)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(...line, after, meal.price_twd + surchargeTwd);
     } else {
-      db.prepare("UPDATE order_items SET quantity = ? WHERE room_id = ? AND member_id = ? AND meal_id = ?").run(
-        after,
-        roomId,
-        me.id,
-        input.mealId,
-      );
+      db.prepare(`UPDATE order_items SET quantity = ? WHERE ${where}`).run(after, ...line);
     }
     // 改餐後需要重新確認；相同 requestId 的重試已在上方返回。
     db.prepare("DELETE FROM member_ready WHERE member_id = ?").run(me.id);
     const revision = bumpRevision(db, roomId);
     const myTotalTwd = sumItems(loadItems(db, roomId, me.id)).totalTwd;
     const result: OrderAck = { requestId: reqId, mealId: input.mealId, quantity: after, myTotalTwd, revision };
+    // 沒有選項與備註時維持升級前的回應內容，舊請求的重送結果不變。
+    if (optionKey !== "" || note !== "") Object.assign(result, { choiceIds, note, lineKey: lineKeyOf(input.mealId, choiceIds, note) });
     db.prepare(
       "INSERT INTO processed_requests (scope, actor_id, request_id, payload_digest, result_json) VALUES ('order', ?, ?, ?, ?)",
     ).run(me.id, reqId, digest, JSON.stringify(result));
