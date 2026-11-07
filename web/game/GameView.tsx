@@ -5,6 +5,7 @@ import "./mobile.css";
 import { useEffect, useRef, useState } from "react";
 import type { MoveInput, PresenceSnapshot, RoomSnapshot, SceneId, Store } from "../../shared/contracts";
 import { roomGateway } from "../adapters/http";
+import { errorText } from "../api";
 import { Game } from "./game";
 import { shopkeeperLine } from "./shopkeeper";
 import { ownerCall } from "./owner-calls";
@@ -71,6 +72,16 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
       const result = await roomGateway.sendEmote(snap.room.id, id);
       gameRef.current?.showBubble(snap.me.id, result.text);
     } catch { announce("表情沒有送出，請稍後再試。"); }
+    finally { emoteTimer.current = setTimeout(() => { emoteLock.current = false; setEmoteBusy(false); }, 1100); }
+  }
+  /** 推薦給大家（#91）：和表情共用鎖與伺服器端頻率限制。 */
+  async function recommend(mealId: string) {
+    if (emoteLock.current || !online || !social) return;
+    emoteLock.current = true; setEmoteBusy(true);
+    try {
+      const result = await roomGateway.recommendMeal(snap.room.id, mealId);
+      gameRef.current?.showBubble(snap.me.id, result.text);
+    } catch (e) { announce(errorText(e)); }
     finally { emoteTimer.current = setTimeout(() => { emoteLock.current = false; setEmoteBusy(false); }, 1100); }
   }
   async function toggleSocial() {
@@ -296,6 +307,10 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
         >
           {canOrder ? <><span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>加一份「{nearMeal.name}」NT${nearMeal.priceTwd}</> : `「${nearMeal.name}」目前不能點餐`}
         </button>
+      )}
+      {nearMeal && !solo && !viewOnly && social && snap.room.status === "open" && (
+        <button className="btn recommend-action" disabled={!online || emoteBusy || socialBusy}
+          onClick={() => void recommend(nearMeal.id)}>👍 推薦給大家</button>
       )}
       <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : viewOnly ? "這家不在本團，只能看菜單・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
     </div>

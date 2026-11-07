@@ -16,6 +16,7 @@
   .stage .hint { display: none; }
   .stage-action { bottom: 44px; left: auto; right: 8px; transform: none; max-width: calc(100% - 144px); min-height: 44px; font-size: 12px; white-space: normal; }
   .game-canvas { touch-action: none; }
+  .stage .recommend-action { bottom: 96px; left: auto; right: 8px; transform: none; min-height: 44px; font-size: 12px; }
   .stage .friend-interact { bottom: 44px; left: auto; right: 8px; transform: none; max-width: calc(100% - 144px); min-height: 44px; font-size: 12px; white-space: normal; }
 }
 @media (max-width: 900px) {

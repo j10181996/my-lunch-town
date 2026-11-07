@@ -340,6 +340,8 @@ label.field small { font-weight: 400; color: var(--sub); }
 .town-bag label { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
 .town-bag input { accent-color: #bd7044; }
 .friend-interact { position: absolute; bottom: 52px; left: 50%; transform: translateX(-50%); white-space: nowrap; z-index: 2; }
+/* 推薦給大家（#91）：疊在「加一份」上方。 */
+.recommend-action { position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); white-space: nowrap; z-index: 2; }
 .town-notice { position: absolute; top: 78px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 10px 18px; border: 2px solid #c18a43; border-radius: 12px; background: #fff2d1; color: #644523; font-weight: 800; box-shadow: 0 4px 0 #3b2a2030; z-index: 5; pointer-events: none; text-align: center; }
 .shop-company { position: absolute; top: 68px; left: 12px; max-width: calc(100% - 24px); padding: 5px 10px; border-radius: 8px; background: #fff6dfed; font-size: 12px; color: #604529; pointer-events: none; }
 @media (max-width: 650px) {

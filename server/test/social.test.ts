@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openDb, SAMPLE_SEED } from "../db";
 import { createRoom, buildSnapshot } from "../rooms/rooms";
-import { setSocial, sendEmote } from "../rooms/social";
+import { recommendMeal, setSocial, sendEmote } from "../rooms/social";
 import { changeQuantity } from "../orders/orders";
 import type { Ctx } from "../context";
 import { createTownFriends, friendPose, lifeWalkable } from "../../web/game/town-life";
@@ -46,6 +46,38 @@ describe("小鎮社交", () => {
       expect(saved.myTotalQuantity).toBe(1);
       setSocial(ctx, "owner-session", room, { enabled: true });
       expect(sendEmote(ctx, "owner-session", room, { emote: "heart" }).text).toContain("❤️");
+    } finally { db.close(); }
+  });
+});
+
+describe("推薦給大家", () => {
+  it("只能推薦本團菜單上的餐點，和表情共用頻率限制，不改訂單 revision", () => {
+    const { db, ctx, snap, bubble } = fixture();
+    try {
+      const room = snap.room.id;
+      const meal = snap.catalog.meals.find((m) => m.available)!;
+      expect(() => recommendMeal(ctx, "stranger", room, { mealId: meal.id })).toThrow("請先加入");
+      expect(() => recommendMeal(ctx, "owner-session", room, {})).toThrow("請選擇");
+      expect(() => recommendMeal(ctx, "owner-session", room, { mealId: "no-such-meal" })).toThrow("不在本團");
+      const result = recommendMeal(ctx, "owner-session", room, { mealId: meal.id, text: "任意文字" });
+      expect(result.text).toBe(`👍 推薦「${meal.name}」！`);
+      expect(bubble).toHaveBeenCalledWith(room, snap.me.id, result.text);
+      expect(() => sendEmote(ctx, "owner-session", room, { emote: "wave" })).toThrow("慢一點");
+      expect(() => recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).toThrow("慢一點");
+      expect(buildSnapshot(db, room, "owner-session").room.revision).toBe(snap.room.revision);
+    } finally { db.close(); }
+  });
+
+  it("關閉社交或已收單時不能推薦", () => {
+    const { db, ctx, snap } = fixture();
+    try {
+      const room = snap.room.id;
+      const meal = snap.catalog.meals.find((m) => m.available)!;
+      setSocial(ctx, "owner-session", room, { enabled: false });
+      expect(() => recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).toThrow("請先開啟");
+      setSocial(ctx, "owner-session", room, { enabled: true });
+      db.prepare("UPDATE rooms SET status = 'closed' WHERE id = ?").run(room);
+      expect(() => recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).toThrow("已收單");
     } finally { db.close(); }
   });
 });

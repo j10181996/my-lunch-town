@@ -58,6 +58,14 @@ assert.equal((await guest("GET", root + "/snapshot")).socialEnabled, false);
 await guest("POST", root + "/emote", { emote: "wave" }, 403);
 await guest("PUT", root + "/social", { enabled: true });
 assert((await guest("POST", root + "/emote", { emote: "wave" })).text);
+// 推薦給大家（#91）：走同一條泡泡通道，對方輪詢 /live 拿得到。
+await new Promise((resolve) => setTimeout(resolve, 1100));
+sync = await owner("POST", root + "/live", ownerLive);
+await stranger("POST", root + "/recommend", { mealId: meal.id }, 401);
+await guest("POST", root + "/recommend", { mealId: "no-such-meal" }, 400);
+const recommended = await guest("POST", root + "/recommend", { mealId: meal.id });
+sync = await owner("POST", root + "/live", { ...ownerLive, after: sync.cursor });
+assert(sync.bubbles.some((b) => b.memberId === joined.me.id && b.text === recommended.text), "recommend bubble reaches Sites poll");
 const directory = await stranger("GET", "/api/management/stores");
 assert(directory.stores.length >= created.snapshot.catalog.stores.length);
 assert(directory.stores.every((s) => !s.canViewDetails && s.activeRoomCount === null));

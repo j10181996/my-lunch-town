@@ -6,3 +6,8 @@ export const EMOTES = [
   { id: "party", icon: "🎉", label: "開心慶祝", text: "🎉 午餐時間到！" },
 ] as const;
 export type EmoteId = typeof EMOTES[number]["id"];
+
+/** 推薦給大家（#91）的泡泡文字；名牌已顯示是誰，這裡只寫餐點。 */
+export function recommendText(mealName: string) {
+  return `👍 推薦「${mealName}」！`;
+}
