@@ -6,6 +6,7 @@ import { migrateDeliveryAddress } from "./delivery-address-schema";
 import { backfillSeedLocations, migrateGeoLocation } from "./geo-schema";
 import { migrateDeadline } from "./rooms/deadline";
 import { SOCIAL_SCHEMA } from "./rooms/social-schema";
+import { STORE_LIKES_SCHEMA } from "./stores/likes-schema";
 import { hashKey, withWriteTx } from "./db-shared";
 import { PAYMENT_REMINDER_SCHEMA } from "./rooms/payment-schema";
 import { migrateMealOptions } from "./orders/options-schema";
@@ -138,6 +139,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   db.exec(SOCIAL_SCHEMA);
   db.exec(MEAL_IMAGES_SCHEMA);
   db.exec(PARTY_SCHEMA);
+  db.exec(STORE_LIKES_SCHEMA);
   migrateDelivery(db, seedFile);
   migratePayment(db);
   migrateMealOptions(db);

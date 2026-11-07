@@ -9,6 +9,8 @@ import { drawIcon } from "../art/scenes";
 import { ctxOf, makeCanvas } from "../art/pixel";
 import { pendingKeyOf, type LineRef, type Pending } from "../state/useRoom";
 import { MealImg, money, OrderStatusBadge } from "../ui";
+import { roomGateway } from "../adapters/http";
+import { errorText } from "../api";
 import { useOrderPrefs } from "./preferences";
 
 export interface OrderingProps {
@@ -460,6 +462,23 @@ export function PeopleDetail({ snap, summary, paymentBusy, onConfirm }: {
   );
 }
 
+/** 收單後給有接單的店家按「好吃！」（#92）；每人每店每團一次，重按不會重複計數。 */
+function LikeStoreButton({ snap, storeId }: { snap: RoomSnapshot; storeId: string }) {
+  const [liked, setLiked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (liked || snap.likedStoreIds?.includes(storeId)) return <span className="like-done">😋 已給店家按讚</span>;
+  return <div className="row">
+    <button className="btn small like-store" disabled={busy} onClick={async () => {
+      setBusy(true); setError("");
+      try { await roomGateway.likeStore(snap.room.id, storeId); setLiked(true); }
+      catch (e) { setError(errorText(e)); }
+      finally { setBusy(false); }
+    }}>😋 好吃！給店家按讚</button>
+    {error && <span className="muted" role="alert">{error}</span>}
+  </div>;
+}
+
 export function RoomOrderStatus({ snap }: { snap: RoomSnapshot }) {
   return (
     <section className="card stack" aria-label="訂單狀態">
@@ -472,6 +491,7 @@ export function RoomOrderStatus({ snap }: { snap: RoomSnapshot }) {
           <span className={`fulfillment-badge ${order.fulfillment}`}>{describeFulfillment(order)}</span>
           <div>{order.totalQuantity} 份 · {money(order.totalTwd)}</div>
           {order.status === "rejected" && <div className="banner error">拒單原因：{order.rejectReason}</div>}
+          {order.status !== "rejected" && snap.room.status === "closed" && <LikeStoreButton snap={snap} storeId={order.storeId} />}
         </div>
       ))}
       {!snap.storeOrders?.length && <div className="muted">沒有已送出的店家訂單。</div>}

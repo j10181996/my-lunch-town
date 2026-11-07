@@ -2,6 +2,7 @@ import type { EmoteId } from "../../shared/social";
 import * as sitesLive from "./sites-live";
 import { io, type Socket } from "socket.io-client";
 import type {
+  StoreLikes,
   CreateStoreResult,
   GeocodeResult,
   MoveInput,
@@ -28,6 +29,7 @@ const bubbleListeners = new Set<(b: PlayerBubble) => void>();
 export interface RoomGatewayExt extends RoomGateway {
   setLunchReady(roomId: string, ready: boolean): Promise<RoomSnapshot>;
   sendEmote(roomId: string, emote: EmoteId): Promise<{ text: string }>;
+  likeStore(roomId: string, storeId: string): Promise<{ storeId: string; liked: boolean }>;
   setSocial(roomId: string, enabled: boolean): Promise<{ enabled: boolean }>;
   setPaymentInfo(roomId: string, info: PaymentInfo): Promise<RoomSnapshot>;
   sendPaymentInfo(roomId: string): Promise<RoomSnapshot>;
@@ -44,6 +46,7 @@ export interface RoomGatewayExt extends RoomGateway {
 export const roomGateway: RoomGatewayExt = {
   setLunchReady: (id, ready) => request("PUT", `/api/rooms/${id}/lunch-ready`, { ready }),
   sendEmote: (id, emote) => request("POST", `/api/rooms/${id}/emote`, { emote }),
+  likeStore: (id, storeId) => request("POST", `/api/rooms/${id}/like`, { storeId }),
   setSocial: (id, enabled) => request("PUT", `/api/rooms/${id}/social`, { enabled }),
   setPaymentInfo: (id, info) => request("PUT", `/api/rooms/${id}/payment-info`, info),
   sendPaymentInfo: (id) => request("POST", `/api/rooms/${id}/payment-info/send`),
@@ -102,6 +105,7 @@ export const storeGateway: StoreAdminGateway = {
   setDelivery: (id, rules) => request<StoreProfile>("PUT", `/api/stores/${id}/delivery`, rules),
   setLocation: (id, location, address) => request<StoreProfile>("PUT", `/api/stores/${id}/location`, { location, address }),
   listOrders: (id) => request<StoreOrder[]>("GET", `/api/stores/${id}/orders`),
+  getLikes: (id) => request<StoreLikes>("GET", `/api/stores/${id}/likes`),
   updateOrderStatus: (id, orderId, input) =>
     request<StoreOrder>("POST", `/api/stores/${id}/orders/${orderId}/status`, input),
   subscribeOrders(id, onChanged) {

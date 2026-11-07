@@ -13,7 +13,7 @@ import type {
   StoreOrderStatus,
 } from "../../shared/contracts";
 import { describeFulfillment, validateDeliveryRules } from "../../shared/delivery";
-import type { GeoPoint } from "../../shared/contracts";
+import type { GeoPoint, StoreLikes } from "../../shared/contracts";
 import { AddressLocator } from "../AddressLocator";
 import { DIET_TAGS, dietTagsOf } from "../../shared/diet";
 import { DEFAULT_MEAL_ART, MEAL_ART, styleOf } from "../../shared/town";
@@ -25,6 +25,30 @@ import { NotFound } from "../pages/NotFound";
 import { StylePicker } from "./ShopNew";
 
 type Load = { kind: "loading" } | { kind: "forbidden" } | { kind: "missing" } | { kind: "ready"; profile: StoreProfile };
+
+/** 客人吃完按的讚（#92）：只顯示數量、團名與時間，不顯示是誰。 */
+function StoreLikesCard({ storeId }: { storeId: string }) {
+  const [likes, setLikes] = useState<StoreLikes | null>(null);
+  const [error, setError] = useState("");
+  const refresh = useCallback(async () => {
+    try { setLikes(await gw.getLikes(storeId)); setError(""); }
+    catch (e) { setError(errorText(e)); }
+  }, [storeId]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  const time = (at: number) => new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+  return (
+    <section className="panel store-likes" aria-label="客人的讚">
+      <div className="row"><h2>😋 客人的讚</h2><button className="btn small" onClick={() => void refresh()}>重新整理</button></div>
+      {error && <div className="banner error" role="alert">{error}</div>}
+      {likes && <>
+        <p><strong>累計 {likes.total} 個讚</strong>・近 7 天 {likes.last7Days} 個</p>
+        {likes.recent.length
+          ? <ul className="like-list">{likes.recent.map((like, i) => <li key={i}>{time(like.at)}・{like.roomTitle || "（團已刪除）"}</li>)}</ul>
+          : <div className="muted">還沒有客人按讚，收單後團員可以給店家按「好吃！」。</div>}
+      </>}
+    </section>
+  );
+}
 
 export function ShopAdmin({ storeId }: { storeId: string }) {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
@@ -154,6 +178,7 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
       <main className="page-body" style={{ maxWidth: 1200 }}>
         <div className="admin">
           <StoreOrders key={profile.id} storeId={profile.id} />
+          <StoreLikesCard key={`likes-${profile.id}`} storeId={profile.id} />
           <section className="panel">
             <div style={{ position: "relative" }}>
               <Storefront styleKey={profile.styleKey} resting={profile.status !== "open"} />

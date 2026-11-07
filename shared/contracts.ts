@@ -474,3 +474,12 @@ export interface OrderDeltaInput { choiceIds?: Id[]; note?: string }
 export interface OrderAck { lineKey?: string; choiceIds?: Id[]; note?: string }
 /** 店家訂單的每人明細；options 是選項文字。舊快照沒有 options／note。 */
 export interface StoreOrderPersonItem { name: string; quantity: number; options?: string; note?: string }
+/** 吃完給店家按讚（#92）。 */
+export interface RoomSnapshot { likedStoreIds?: Id[] }
+export interface StoreLikes {
+  total: number;
+  last7Days: number;
+  /** 最近幾筆：只有時間與團名，不顯示是誰按的。 */
+  recent: Array<{ at: number; roomTitle: string }>;
+}
+export interface StoreAdminGateway { getLikes(storeId: Id): Promise<StoreLikes> }

@@ -22,6 +22,7 @@ import type { Ctx } from "../context";
 import { err, withWriteTx, type Db } from "../db";
 import { randomId, requestId as checkRequestId, text } from "../util";
 import { roomStoreOrders } from "../orders/storeOrders";
+import { likedStoreIds } from "../stores/likes-schema";
 
 import { paymentRemindedAt, paymentStatus } from "./payments";
 import { deadlinePassed, parseDeadline } from "./deadline";
@@ -244,6 +245,7 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
     myTotalQuantity: mine.totalQuantity,
     storeTotals,
     storeOrders: roomStoreOrders(db, roomId),
+    likedStoreIds: likedStoreIds(db, roomId, me.id),
     totalQuantity: g.totalQuantity,
     totalTwd: g.totalTwd,
   };
