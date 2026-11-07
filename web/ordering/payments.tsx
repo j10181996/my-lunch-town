@@ -188,7 +188,8 @@ export function PaymentCard({ snap, busy, onReport }: {
       </>}
       {(method.type === "linepay" || method.type === "jkopay") &&
         <div className="row">ID：{method.id}<CopyButton text={method.id} /></div>}
-      {mine && <MethodQr method={method} amountTwd={mine.amountTwd} />}
+      {/* 回報或確認付款後收起 QR，避免同一團重複掃碼付款。 */}
+      {mine?.status === "unpaid" && <MethodQr method={method} amountTwd={mine.amountTwd} />}
       {method.type === "cash" && <div>{method.note || "現金交給團主"}</div>}
       {method.type === "other" && <div>{method.text}</div>}
     </div>)}
