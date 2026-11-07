@@ -2,6 +2,7 @@ import type { Server as HttpServer } from "node:http";
 import { Server, type Socket } from "socket.io";
 import type { Direction, MoveInput, PlayerPresence, PresenceSnapshot } from "../../shared/contracts";
 import type { RoomEvents } from "../context";
+import { isBadgeId } from "../../shared/social";
 import { requireOwner } from "../stores/stores";
 import { AppError } from "../db";
 import type { Db } from "../db";
@@ -37,7 +38,7 @@ function validMove(input: unknown): MoveInput | null {
   if (!DIRECTIONS.includes(m.direction as Direction)) return null;
   if (typeof m.seq !== "number" || !Number.isInteger(m.seq)) return null;
   if (m.accessory !== undefined && !["none", "flower", "leaf", "cap"].includes(m.accessory)) return null;
-  if (m.badge !== undefined && !["visit", "order", "friend", "collect"].includes(m.badge)) return null;
+  if (m.badge !== undefined && !isBadgeId(m.badge)) return null;
   return { accessory: m.accessory, badge: m.badge, sceneId: m.sceneId as MoveInput["sceneId"], x: m.x, y: m.y, direction: m.direction as Direction, seq: m.seq };
 }
 
