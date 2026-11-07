@@ -1,4 +1,6 @@
 /** 店內店主的台詞（#80）：純前端、依情境挑一句，不呼叫 API。泡泡寬度有限，台詞盡量在 16 字內。 */
+import type { StoreOrderStatus } from "../../shared/contracts";
+import { shopkeeperProgressLine } from "./order-progress";
 
 export interface ShopkeeperContext {
   /** 這家目前有供應的餐點，用來推薦。 */
@@ -13,6 +15,8 @@ export interface ShopkeeperContext {
   solo: boolean;
   /** 這家不在本團（#78）：能進店看菜單，但不能點餐。 */
   notInRoom?: boolean;
+  /** 店家對這團訂單的處理進度（#87）；收單前沒有。 */
+  orderStatus?: StoreOrderStatus | null;
   /** 第幾次和店主說話（從 0 開始），用來輪替台詞。 */
   talk: number;
   now: number;
@@ -41,9 +45,12 @@ export function shopkeeperLine(ctx: ShopkeeperContext): string {
     if (minutes <= DEADLINE_REMIND_MINUTES) return `本店再 ${minutes} 分鐘就不接單囉！`;
   }
 
-  const lines = [greeting(ctx.now)];
+  // 店家已收到這團的單：進度排第一句，並取代「馬上準備」的複誦，免得做好了還說要準備。
+  const progress = browsing ? null : shopkeeperProgressLine(ctx.orderStatus);
+  const lines = progress ? [progress, greeting(ctx.now)] : [greeting(ctx.now)];
   if (ctx.solo) lines.push("喜歡的話，揪大家來開團吧！");
   else if (ctx.notInRoom) lines.push("這次沒揪到我們家，下次見！");
+  else if (progress) { /* 進度已說明 */ }
   else if (ctx.ordered.length === 1) lines.push(`${ctx.ordered[0].name}×${ctx.ordered[0].quantity}，馬上準備！`);
   else if (ctx.ordered.length > 1) lines.push(`${ctx.ordered.length} 樣餐點都記下了，馬上準備！`);
   const tip = !browsing && !ctx.roomClosed && !ctx.ordered.length ? "站到陳列台前按 Enter 點餐喔。" : "吃飽才有力氣，下午加油！";
