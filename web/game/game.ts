@@ -1,0 +1,638 @@
+import type { Point, Direction, Meal, MoveInput, PlayerPresence, SceneId, Store } from "../../shared/contracts";
+import { STREET_W, STREET_H, STREET_SPAWN, sceneSize, viewSize } from "../../shared/town";
+import { CHAR_H, CHAR_W, characterFrames } from "../art/characters";
+import { buildShop, buildStreet, type ProductSlot, type Rect, type SceneArt } from "../art/scenes";
+
+const SPEED = 84; // 邏輯像素／秒（大地圖走快一點，橫越約 11 秒）
+const FOOT_W = 8;
+const FOOT_H = 4;
+const DOOR_RX = 14;
+const DOOR_RY = 10;
+/** 自動進店的水平容許範圍：約等於門寬（16px），斜著擦過門邊不會誤觸。 */
+const DOOR_WALK_IN_RX = 9;
+const EXIT = { x: 192, y: 205, rx: 18 };
+const SEND_INTERVAL_MS = 100;
+/** 陳列台前板上，價格行在品名行下方多少（邏輯像素）。 */
+const PRODUCT_PRICE_DY = 7.5;
+
+export interface GameMember {
+  id: string;
+  nickname: string;
+  avatarId: string;
+}
+
+export interface GameCallbacks {
+  onSceneChange(sceneId: SceneId): void;
+  onNearDoor(store: Store | null): void;
+  onMove(input: MoveInput): void;
+  /** 站到櫃檯某個商品前（或離開時為 null）。 */
+  onNearProduct(mealId: string | null): void;
+  /** 在商品前按 Enter。 */
+  onPickProduct(mealId: string): void;
+}
+
+interface Actor {
+  x: number;
+  y: number;
+  dir: Direction;
+  moving: boolean;
+  animT: number;
+}
+
+interface Remote extends Actor {
+  tx: number;
+  ty: number;
+  sceneId: SceneId;
+  lastSeen: number;
+}
+
+/** Canvas 2D 小遊戲：一個邏輯緩衝區整數倍放大，再以高解析度補畫文字。 */
+export class Game {
+  private display: HTMLCanvasElement;
+  private dctx: CanvasRenderingContext2D;
+  private buffer = document.createElement("canvas");
+  private bctx: CanvasRenderingContext2D;
+  private scale = 1;
+  private dpr = 1;
+
+  private deliveryPoint: Point | null = null;
+  private stores: Store[] = [];
+  private meals: Meal[] = [];
+  private nearProduct: ProductSlot | null = null;
+  private myQty = new Map<string, number>();
+  private sceneId: SceneId = "street";
+  private art: SceneArt | null = null;
+  private streetArt: SceneArt | null = null;
+  private shopArt = new Map<string, SceneArt>();
+
+  private me: Actor = { x: STREET_SPAWN.x, y: STREET_SPAWN.y, dir: "down", moving: false, animT: 0 };
+  private meId = "";
+  private members = new Map<string, GameMember>();
+  private remotes = new Map<string, Remote>();
+  private bubbles = new Map<string, { text: string; until: number }>();
+
+  private keys = new Set<string>();
+  private nearDoor: Store | null = null;
+  private exitArmed = true;
+  private fade = 0;
+  private seq = 0;
+  private lastSent = 0;
+  private dirty = true;
+  private raf = 0;
+  private last = 0;
+  private enabled = true;
+
+  constructor(
+    canvas: HTMLCanvasElement,
+    private cb: GameCallbacks,
+  ) {
+    this.display = canvas;
+    this.dctx = canvas.getContext("2d")!;
+    this.bctx = this.buffer.getContext("2d")!;
+    this.applyView();
+    window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("keyup", this.onKeyUp);
+    window.addEventListener("blur", this.onBlur);
+    this.raf = requestAnimationFrame(this.tick);
+  }
+
+  destroy() {
+    cancelAnimationFrame(this.raf);
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("blur", this.onBlur);
+  }
+
+  /* ——— 外部設定 ——— */
+
+  private cssW = 0;
+  private cssH = 0;
+
+  /** 鏡頭範圍依場景不同：換場景時重設緩衝區大小與放大倍率。 */
+  private applyView() {
+    const v = this.view;
+    if (this.buffer.width !== v.w || this.buffer.height !== v.h) {
+      this.buffer.width = v.w;
+      this.buffer.height = v.h;
+      this.bctx.imageSmoothingEnabled = false;
+    }
+    if (this.cssW > 0) this.resize(this.cssW, this.cssH);
+  }
+
+  private get view() {
+    return viewSize(this.sceneId);
+  }
+
+  resize(cssW: number, cssH: number) {
+    this.cssW = cssW;
+    this.cssH = cssH;
+    const { w: VIEW_W, h: VIEW_H } = this.view;
+    this.dpr = window.devicePixelRatio || 1;
+    let s = Math.min(cssW / VIEW_W, cssH / VIEW_H);
+    // 讓「實體像素倍率」s×dpr 為整數：一般螢幕整數倍，Retina 可用 0.5 級距，像素仍銳利
+    if (s * this.dpr >= 1) s = Math.floor(s * this.dpr) / this.dpr;
+    this.scale = s;
+    this.display.style.width = `${VIEW_W * s}px`;
+    this.display.style.height = `${VIEW_H * s}px`;
+    this.display.width = Math.round(VIEW_W * s * this.dpr);
+    this.display.height = Math.round(VIEW_H * s * this.dpr);
+  }
+
+  setCatalog(stores: Store[], meals: Meal[]) {
+    const sig = catalogSig(stores, meals);
+    const prev = catalogSig(this.stores, this.meals);
+    this.stores = stores;
+    this.meals = meals;
+    if (sig === prev && this.streetArt) return;
+    this.streetArt = buildStreet(stores);
+    this.shopArt.clear();
+    this.applySceneArt();
+  }
+
+  setDeliveryPoint(point: Point | null) {
+    this.deliveryPoint = point;
+  }
+
+  setSelf(memberId: string) {
+    this.meId = memberId;
+  }
+
+  setMembers(members: GameMember[]) {
+    this.members = new Map(members.map((m) => [m.id, m]));
+  }
+
+  /** 自己已點的份數，畫在櫃檯商品上。 */
+  setMyQuantities(q: Map<string, number>) {
+    this.myQty = q;
+  }
+
+  setEnabled(enabled: boolean) {
+    this.enabled = enabled;
+    if (!enabled) this.keys.clear();
+  }
+
+  setPresence(players: PlayerPresence[]) {
+    const now = performance.now();
+    const seen = new Set<string>();
+    for (const p of players) {
+      if (p.memberId === this.meId) continue;
+      seen.add(p.memberId);
+      const size = sceneSize(p.sceneId);
+      const tx = p.x * size.w;
+      const ty = p.y * size.h;
+      const r = this.remotes.get(p.memberId);
+      if (!r || r.sceneId !== p.sceneId) {
+        this.remotes.set(p.memberId, { x: tx, y: ty, tx, ty, dir: p.direction, moving: false, animT: 0, sceneId: p.sceneId, lastSeen: now });
+      } else {
+        r.tx = tx;
+        r.ty = ty;
+        r.dir = p.direction;
+        r.lastSeen = now;
+      }
+    }
+    for (const id of [...this.remotes.keys()]) if (!seen.has(id)) this.remotes.delete(id);
+  }
+
+  showBubble(memberId: string, text: string) {
+    this.bubbles.set(memberId, { text, until: performance.now() + 2600 });
+  }
+
+  /** 目前場景的世界尺寸（邏輯像素）。 */
+  private get world() {
+    return sceneSize(this.sceneId);
+  }
+
+  /** 鏡頭左上角：以自己為中心，碰到地圖邊界就停；地圖比畫面小時置中。 */
+  private camera(): { x: number; y: number } {
+    const w = this.world;
+    const axis = (pos: number, view: number, size: number) =>
+      size <= view ? Math.round((size - view) / 2) : Math.round(Math.min(size - view, Math.max(0, pos - view / 2)));
+    const v = this.view;
+    return { x: axis(this.me.x, v.w, w.w), y: axis(this.me.y - 12, v.h, w.h) };
+  }
+
+  /** 唯讀的除錯資訊：自動化測試用來導航（不提供任何改變狀態的方法）。 */
+  debugState() {
+    return { x: this.me.x, y: this.me.y, scene: this.sceneId, nearDoor: this.nearDoor?.id ?? null, nearProduct: this.nearProduct?.mealId ?? null };
+  }
+
+  get scene(): SceneId {
+    return this.sceneId;
+  }
+
+  /** 進店（E 鍵、點擊提示或面板的「前往店家」皆走這裡）。 */
+  enterStore(storeId: string) {
+    const store = this.stores.find((s) => s.id === storeId);
+    if (!store) return;
+    this.sceneId = store.sceneId;
+    this.me = { x: EXIT.x, y: 192, dir: "up", moving: false, animT: 0 };
+    this.exitArmed = true;
+    this.fade = 1;
+    this.keys.clear();
+    this.applySceneArt();
+    this.applyView();
+    this.setNearDoor(null);
+    this.setNearProduct(null);
+    this.cb.onSceneChange(this.sceneId);
+    this.sendMove(true);
+  }
+
+  /** 回街上，出生在該店門外，不會立即再進店（需再按 E）。 */
+  leaveStore() {
+    const storeId = this.sceneId.startsWith("shop:") ? this.sceneId.slice(5) : null;
+    const store = this.stores.find((s) => s.id === storeId);
+    this.sceneId = "street";
+    const door = store?.door ?? { x: 0.5, y: 0.45 };
+    const w = this.world;
+    this.me = { x: door.x * w.w, y: door.y * w.h + 6, dir: "down", moving: false, animT: 0 };
+    this.fade = 1;
+    this.keys.clear();
+    this.applySceneArt();
+    this.applyView();
+    this.setNearProduct(null);
+    this.cb.onSceneChange(this.sceneId);
+    this.sendMove(true);
+  }
+
+  /* ——— 內部 ——— */
+
+  private applySceneArt() {
+    if (this.sceneId === "street") {
+      this.art = this.streetArt;
+      return;
+    }
+    const id = this.sceneId.slice(5);
+    let art = this.shopArt.get(id);
+    const store = this.stores.find((s) => s.id === id);
+    if (!art && store) {
+      art = buildShop(
+        store,
+        this.meals.filter((m) => m.storeId === id),
+      );
+      this.shopArt.set(id, art);
+    }
+    this.art = art ?? this.streetArt;
+  }
+
+  private onKeyDown = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+    if (!this.enabled) return;
+    const k = e.key.toLowerCase();
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"].includes(k)) {
+      this.keys.add(k);
+      e.preventDefault();
+      // 開始走路就把焦點從側欄按鈕移開，之後的 Enter 才會交給遊戲而不是再按一次那顆按鈕
+      if (t && (t.tagName === "BUTTON" || t.tagName === "A")) t.blur();
+    } else if (k === "enter" && this.nearProduct && !e.repeat) {
+      if (t && (t.tagName === "BUTTON" || t.tagName === "A")) return; // 交給被聚焦的按鈕
+      e.preventDefault();
+      this.cb.onPickProduct(this.nearProduct.mealId);
+    } else if (k === "e" && this.nearDoor) {
+      this.enterStore(this.nearDoor.id);
+    } else if (k === "escape" && this.sceneId !== "street") {
+      this.leaveStore();
+    }
+  };
+  private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase());
+  private onBlur = () => this.keys.clear();
+
+  private blocked(x: number, y: number): boolean {
+    const fx = x - FOOT_W / 2;
+    const fy = y - FOOT_H;
+    const w = this.world;
+    if (fx < 2 || fy < 2 || fx + FOOT_W > w.w - 2 || y > w.h - 1) return true;
+    for (const r of this.art?.colliders ?? []) {
+      if (fx < r.x + r.w && fx + FOOT_W > r.x && fy < r.y + r.h && fy + FOOT_H > r.y) return true;
+    }
+    return false;
+  }
+
+  private setNearProduct(p: ProductSlot | null) {
+    if (p?.mealId === this.nearProduct?.mealId) return;
+    this.nearProduct = p;
+    this.cb.onNearProduct(p?.mealId ?? null);
+  }
+
+  private setNearDoor(store: Store | null) {
+    if (store?.id === this.nearDoor?.id) return;
+    this.nearDoor = store;
+    this.cb.onNearDoor(store);
+  }
+
+  private update(dt: number) {
+    let vx = 0;
+    let vy = 0;
+    const k = this.keys;
+    if (k.has("arrowleft") || k.has("a")) vx -= 1;
+    if (k.has("arrowright") || k.has("d")) vx += 1;
+    if (k.has("arrowup") || k.has("w")) vy -= 1;
+    if (k.has("arrowdown") || k.has("s")) vy += 1;
+    const me = this.me;
+    const wasMoving = me.moving;
+    me.moving = vx !== 0 || vy !== 0;
+    if (me.moving) {
+      const len = Math.hypot(vx, vy);
+      const nx = me.x + (vx / len) * SPEED * dt;
+      const ny = me.y + (vy / len) * SPEED * dt;
+      if (!this.blocked(nx, me.y)) me.x = nx;
+      if (!this.blocked(me.x, ny)) me.y = ny;
+      me.dir = Math.abs(vx) > Math.abs(vy) ? (vx < 0 ? "left" : "right") : vy < 0 ? "up" : "down";
+      me.animT += dt;
+      this.dirty = true;
+    } else if (wasMoving) {
+      this.dirty = true;
+    }
+
+    if (this.sceneId === "street") {
+      const near = this.stores.find((s) => {
+        const dx = s.door.x * this.world.w;
+        const dy = s.door.y * this.world.h;
+        return Math.abs(me.x - dx) < DOOR_RX && Math.abs(me.y - dy) < DOOR_RY;
+      });
+      this.setNearDoor(near ?? null);
+      // 和出店踩地墊一樣：往上走進門框就直接進店（E 與按鈕仍可用）
+      if (near && vy < 0) {
+        const dx = near.door.x * this.world.w;
+        const dy = near.door.y * this.world.h;
+        if (Math.abs(me.x - dx) < DOOR_WALK_IN_RX && me.y <= dy - 1) {
+          this.enterStore(near.id);
+          return;
+        }
+      }
+    } else {
+      const near = (this.art?.products ?? []).find(
+        (p) => me.x >= p.zone.x && me.x < p.zone.x + p.zone.w && me.y >= p.zone.y && me.y < p.zone.y + p.zone.h,
+      );
+      this.setNearProduct(near ?? null);
+      const onMat = me.y >= EXIT.y && Math.abs(me.x - EXIT.x) < EXIT.rx;
+      if (!onMat) this.exitArmed = true;
+      else if (this.exitArmed && me.moving) this.leaveStore();
+    }
+
+    for (const r of this.remotes.values()) {
+      const dx = r.tx - r.x;
+      const dy = r.ty - r.y;
+      const dist = Math.hypot(dx, dy);
+      r.moving = dist > 0.5;
+      if (dist > 60) {
+        r.x = r.tx;
+        r.y = r.ty;
+      } else if (r.moving) {
+        const step = Math.min(dist, SPEED * 1.15 * dt);
+        r.x += (dx / dist) * step;
+        r.y += (dy / dist) * step;
+        r.animT += dt;
+      }
+    }
+
+    if (this.fade > 0) this.fade = Math.max(0, this.fade - dt * 3.5);
+
+    const now = performance.now();
+    if (this.dirty && now - this.lastSent >= SEND_INTERVAL_MS) this.sendMove(false);
+  }
+
+  private sendMove(force: boolean) {
+    const now = performance.now();
+    if (!force && now - this.lastSent < SEND_INTERVAL_MS) return;
+    this.lastSent = now;
+    this.dirty = false;
+    this.cb.onMove({
+      sceneId: this.sceneId,
+      x: Math.min(1, Math.max(0, this.me.x / this.world.w)),
+      y: Math.min(1, Math.max(0, this.me.y / this.world.h)),
+      direction: this.me.dir,
+      seq: ++this.seq,
+    });
+  }
+
+  /** 首次連線後送出目前位置，讓他人看得到。 */
+  announce() {
+    this.sendMove(true);
+  }
+
+  private frameOf(a: Actor) {
+    if (!a.moving) return 0;
+    return Math.floor(a.animT * 8) % 2 === 0 ? 1 : 2;
+  }
+
+  private render() {
+    const b = this.bctx;
+    const cam = this.camera();
+    const v = this.view;
+    b.setTransform(1, 0, 0, 1, 0, 0);
+    b.fillStyle = "#000";
+    b.fillRect(0, 0, v.w, v.h);
+    b.setTransform(1, 0, 0, 1, -cam.x, -cam.y); // 以下以世界座標繪製
+    if (this.art) b.drawImage(this.art.background, 0, 0);
+    if (this.nearProduct) drawProductHighlight(b, this.nearProduct, performance.now());
+
+    type Draw = { id: string; a: Actor; avatarId: string; name: string; self: boolean };
+    const draws: Draw[] = [];
+    const meMember = this.members.get(this.meId);
+    draws.push({ id: this.meId, a: this.me, avatarId: meMember?.avatarId ?? "avatar-blue", name: meMember?.nickname ?? "我", self: true });
+    for (const [id, r] of this.remotes) {
+      if (r.sceneId !== this.sceneId) continue;
+      const m = this.members.get(id);
+      draws.push({ id, a: r, avatarId: m?.avatarId ?? "avatar-blue", name: m?.nickname ?? "…", self: false });
+    }
+    draws.sort((p, q) => p.a.y - q.a.y);
+    for (const d of draws) {
+      b.fillStyle = "#00000030";
+      b.fillRect(Math.round(d.a.x - 5), Math.round(d.a.y - 1), 10, 2);
+      const sprite = characterFrames(d.avatarId)[d.a.dir][this.frameOf(d.a)];
+      b.drawImage(sprite, Math.round(d.a.x - CHAR_W / 2), Math.round(d.a.y - CHAR_H + 1));
+    }
+    if (this.art?.foreground) b.drawImage(this.art.foreground, 0, 0);
+
+    if (this.sceneId === "street" && this.deliveryPoint) {
+      const x = Math.round(this.deliveryPoint.x * STREET_W);
+      const y = Math.round(this.deliveryPoint.y * STREET_H);
+      b.fillStyle = "#3b2a20";
+      b.fillRect(x, y - 14, 1, 14);
+      b.fillStyle = "#e5574a";
+      b.fillRect(x + 1, y - 14, 7, 5);
+      b.fillRect(x + 1, y - 9, 4, 2);
+    }
+
+    // 放大到顯示畫布
+    const d = this.dctx;
+    const k = this.scale * this.dpr;
+    d.setTransform(1, 0, 0, 1, 0, 0);
+    d.imageSmoothingEnabled = false;
+    d.drawImage(this.buffer, 0, 0, v.w * k, v.h * k);
+    d.setTransform(1, 0, 0, 1, -cam.x * k, -cam.y * k); // 文字以「世界座標 × k」繪製
+
+    // 高解析度文字：招牌、名牌、泡泡
+    d.textAlign = "center";
+    d.textBaseline = "middle";
+    for (const s of this.art?.signs ?? []) {
+      d.font = `700 ${s.size * k}px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif`;
+      d.fillStyle = s.color;
+      d.fillText(s.text, (s.x + s.w / 2) * k, s.y * k, s.w * k);
+    }
+    if (this.sceneId === "street" && this.deliveryPoint) {
+      const x = this.deliveryPoint.x * STREET_W;
+      const y = this.deliveryPoint.y * STREET_H;
+      d.font = `700 ${8 * k}px "PingFang TC",sans-serif`;
+      d.lineWidth = 2 * k;
+      d.strokeStyle = "#fffaf0";
+      d.fillStyle = "#3b2a20";
+      d.strokeText("送餐地點", x * k, (y - 21) * k);
+      d.fillText("送餐地點", x * k, (y - 21) * k);
+    }
+    const FONT = `"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif`;
+    // 陳列台商品：前板兩行（品名、價格），字太長先縮小、再截斷
+    for (const p of this.art?.products ?? []) {
+      const meal = this.meals.find((m) => m.id === p.mealId);
+      if (!meal) continue;
+      const maxW = (p.w - 2) * k;
+      // 角色站在前板前面時（身體擋住文字），文字淡化，避免字疊在人身上
+      const labelTop = p.labelY - 4;
+      const labelBottom = p.labelY + PRODUCT_PRICE_DY + 4;
+      const covered = draws.some(
+        (dr) =>
+          // 角色身體實際寬約 12px（sprite 兩側留白），只淡化真的被擋住的那一道
+          Math.abs(dr.a.x - p.x) < p.w / 2 + 6 && dr.a.y - CHAR_H < labelBottom && dr.a.y > labelTop,
+      );
+      d.globalAlpha = covered ? 0.18 : 1;
+      const name = fitText(d, meal.name, maxW, 5 * k, 3.6 * k, `700`, FONT);
+      d.font = name.font;
+      d.fillStyle = "#fff4dc";
+      d.fillText(name.text, p.x * k, p.labelY * k);
+      d.font = `800 ${4.6 * k}px ${FONT}`;
+      d.fillStyle = "#ffd36b";
+      d.fillText(`$${meal.priceTwd}`, p.x * k, (p.labelY + PRODUCT_PRICE_DY) * k, maxW);
+    }
+    d.globalAlpha = 1;
+    // 站在前面的商品：上方顯示完整名稱與價格
+    if (this.nearProduct) {
+      const p = this.nearProduct;
+      const meal = this.meals.find((m) => m.id === p.mealId);
+      if (meal) {
+        const label = `${meal.name}  NT$${meal.priceTwd}`;
+        d.font = `800 ${6 * k}px ${FONT}`;
+        const w = d.measureText(label).width + 8 * k;
+        const h = 10 * k;
+        const top = (p.y - 20) * k;
+        const left = Math.min(Math.max(p.x * k - w / 2, 2 * k), (this.world.w - 2) * k - w);
+        d.fillStyle = "#3b2a20";
+        roundRect(d, left - k * 0.6, top - k * 0.6, w + k * 1.2, h + k * 1.2, 3 * k);
+        d.fillStyle = "#fffdf6";
+        roundRect(d, left, top, w, h, 3 * k);
+        d.fillStyle = "#3b2a20";
+        d.fillText(label, left + w / 2, top + h / 2);
+      }
+    }
+    for (const p of this.art?.products ?? []) {
+      const q = this.myQty.get(p.mealId);
+      if (!q) continue;
+      const bx = (p.x + p.size / 2) * k;
+      const by = p.y * k;
+      d.fillStyle = "#e5574a";
+      roundRect(d, bx - 5 * k, by - 3 * k, 10 * k, 7 * k, 3 * k);
+      d.font = `800 ${5 * k}px "PingFang TC","Noto Sans TC",sans-serif`;
+      d.fillStyle = "#fff";
+      d.fillText(`×${q}`, bx, by + 0.6 * k);
+    }
+    const now = performance.now();
+    for (const dr of draws) {
+      const cx = dr.a.x * k;
+      const top = (dr.a.y + 2) * k;
+      d.font = `600 ${5 * k}px "PingFang TC","Noto Sans TC",sans-serif`;
+      const w = d.measureText(dr.name).width + 4 * k;
+      d.fillStyle = dr.self ? "#d9483ecc" : "#3b2a20bb";
+      roundRect(d, cx - w / 2, top, w, 7 * k, 2 * k);
+      d.fillStyle = "#fff";
+      d.fillText(dr.name, cx, top + 3.6 * k);
+
+      const bub = this.bubbles.get(dr.id);
+      if (bub && bub.until > now) {
+        const by = (dr.a.y - CHAR_H - 4) * k;
+        d.font = `700 ${6 * k}px "PingFang TC","Noto Sans TC",sans-serif`;
+        const bw = d.measureText(bub.text).width + 6 * k;
+        const bh = 10 * k;
+        d.fillStyle = "#3b2a20";
+        roundRect(d, cx - bw / 2 - k * 0.6, by - bh - k * 0.6, bw + k * 1.2, bh + k * 1.2, 3 * k);
+        d.fillStyle = "#fffdf6";
+        roundRect(d, cx - bw / 2, by - bh, bw, bh, 3 * k);
+        d.beginPath();
+        d.moveTo(cx - 2 * k, by);
+        d.lineTo(cx + 2 * k, by);
+        d.lineTo(cx, by + 3 * k);
+        d.fill();
+        d.fillStyle = "#3b2a20";
+        d.fillText(bub.text, cx, by - bh / 2);
+      } else if (bub) {
+        this.bubbles.delete(dr.id);
+      }
+    }
+
+    d.setTransform(1, 0, 0, 1, 0, 0);
+    if (this.fade > 0) {
+      d.fillStyle = `rgba(30, 20, 14, ${this.fade})`;
+      d.fillRect(0, 0, this.display.width, this.display.height);
+    }
+  }
+
+  private tick = (t: number) => {
+    const dt = this.last ? Math.min(0.05, (t - this.last) / 1000) : 0;
+    this.last = t;
+    this.update(dt);
+    this.render();
+    this.raf = requestAnimationFrame(this.tick);
+  };
+
+  /** 門口提示按鈕要定位在角色上方（CSS 像素）。 */
+  doorAnchor(): { x: number; y: number } | null {
+    if (!this.nearDoor) return null;
+    const cam = this.camera();
+    return { x: (this.me.x - cam.x) * this.scale, y: (this.me.y - CHAR_H - 2 - cam.y) * this.scale };
+  }
+}
+
+function roundRect(d: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  d.beginPath();
+  d.roundRect(x, y, w, h, r);
+  d.fill();
+}
+
+export type { Rect };
+
+function catalogSig(stores: Store[], meals: Meal[]) {
+  return [
+    ...stores.map((s) => `${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}`),
+    ...meals.map((m) => `${m.id}:${m.name}:${m.priceTwd}:${m.imageAssetKey}`),
+  ].join("|");
+}
+
+/** 選中的商品：描邊框加上會上下跳的小箭頭。 */
+function drawProductHighlight(b: CanvasRenderingContext2D, p: ProductSlot, t: number) {
+  const x0 = Math.round(p.x - p.size / 2) - 2;
+  const y0 = p.y - 2;
+  const s = p.size + 4;
+  b.fillStyle = "#ffe27a";
+  b.fillRect(x0, y0, s, 1);
+  b.fillRect(x0, y0 + s - 1, s, 1);
+  b.fillRect(x0, y0, 1, s);
+  b.fillRect(x0 + s - 1, y0, 1, s);
+  const bob = Math.floor(t / 250) % 2;
+  const ax = Math.round(p.x);
+  const ay = y0 - 6 + bob;
+  b.fillStyle = "#3b2a20";
+  b.fillRect(ax - 3, ay - 1, 7, 1);
+  b.fillStyle = "#ffe27a";
+  for (let i = 0; i < 3; i++) b.fillRect(ax - 2 + i, ay + i, 5 - i * 2, 1);
+}
+
+/** 在 maxW 內放下文字：先從 size 往下縮到 minSize，仍放不下就截斷加「…」。 */
+function fitText(d: CanvasRenderingContext2D, text: string, maxW: number, size: number, minSize: number, weight: string, family: string) {
+  for (let s = size; s >= minSize; s -= 0.25 * (size / 5)) {
+    d.font = `${weight} ${s}px ${family}`;
+    if (d.measureText(text).width <= maxW) return { text, font: d.font };
+  }
+  d.font = `${weight} ${minSize}px ${family}`;
+  const chars = [...text];
+  while (chars.length > 1 && d.measureText(chars.join("") + "…").width > maxW) chars.pop();
+  return { text: chars.join("") + "…", font: d.font };
+}

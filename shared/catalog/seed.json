@@ -1,0 +1,41 @@
+{
+  "catalogVersion": "sample-20261105-v1",
+  "currency": "TWD",
+  "isSample": true,
+  "stores": [
+    { "id": "store-af", "name": "阿福便當", "sceneId": "shop:store-af", "door": { "x": 0.25, "y": 0.55 }, "interiorAssetKey": "interior-bento" },
+    { "id": "store-tree", "name": "大樹麵店", "sceneId": "shop:store-tree", "door": { "x": 0.5, "y": 0.4 }, "interiorAssetKey": "interior-noodle" },
+    { "id": "store-green", "name": "綠芽素食", "sceneId": "shop:store-green", "door": { "x": 0.75, "y": 0.55 }, "interiorAssetKey": "interior-vegetarian" }
+  ],
+  "meals": [
+    { "id": "meal-af-chicken", "storeId": "store-af", "name": "招牌雞腿飯", "priceTwd": 120, "imageAssetKey": "meal-chicken-bento", "available": true, "tags": [] },
+    { "id": "meal-af-pork", "storeId": "store-af", "name": "滷排骨飯", "priceTwd": 110, "imageAssetKey": "meal-pork-bento", "available": true, "tags": [] },
+    { "id": "meal-af-vegetable", "storeId": "store-af", "name": "蔬菜便當", "priceTwd": 90, "imageAssetKey": "meal-vegetable-bento", "available": true, "tags": [] },
+    { "id": "meal-tree-dry", "storeId": "store-tree", "name": "乾麵", "priceTwd": 60, "imageAssetKey": "meal-dry-noodle", "available": true, "tags": [] },
+    { "id": "meal-tree-soup", "storeId": "store-tree", "name": "餛飩湯麵", "priceTwd": 80, "imageAssetKey": "meal-wonton-noodle", "available": true, "tags": [] },
+    { "id": "meal-tree-sesame", "storeId": "store-tree", "name": "麻醬麵套餐", "priceTwd": 90, "imageAssetKey": "meal-sesame-noodle", "available": true, "tags": [] },
+    { "id": "meal-green-tofu", "storeId": "store-green", "name": "豆腐蔬食飯", "priceTwd": 90, "imageAssetKey": "meal-tofu-rice", "available": true, "tags": [] },
+    { "id": "meal-green-mushroom", "storeId": "store-green", "name": "菇菇便當", "priceTwd": 100, "imageAssetKey": "meal-mushroom-bento", "available": true, "tags": [] },
+    { "id": "meal-green-pumpkin", "storeId": "store-green", "name": "南瓜蔬食飯", "priceTwd": 110, "imageAssetKey": "meal-pumpkin-rice", "available": true, "tags": [] }
+  ],
+  "demoFixture": {
+    "roomTitle": "今天午餐團",
+    "members": [
+      { "id": "member-kai", "nickname": "阿凱", "role": "owner", "avatarId": "avatar-blue" },
+      { "id": "member-rain", "nickname": "小雨", "role": "participant", "avatarId": "avatar-pink" },
+      { "id": "member-lily", "nickname": "莉莉", "role": "participant", "avatarId": "avatar-purple" }
+    ],
+    "items": [
+      { "memberId": "member-kai", "mealId": "meal-af-chicken", "quantity": 1 },
+      { "memberId": "member-rain", "mealId": "meal-af-chicken", "quantity": 1 },
+      { "memberId": "member-rain", "mealId": "meal-af-pork", "quantity": 1 },
+      { "memberId": "member-lily", "mealId": "meal-tree-dry", "quantity": 1 }
+    ],
+    "expected": {
+      "totalQuantity": 4,
+      "totalTwd": 410,
+      "byStore": { "store-af": { "quantity": 3, "totalTwd": 350 }, "store-tree": { "quantity": 1, "totalTwd": 60 } },
+      "byMember": { "member-kai": 120, "member-rain": 230, "member-lily": 60 }
+    }
+  }
+}

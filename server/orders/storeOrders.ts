@@ -1,0 +1,180 @@
+import type { RoomStoreOrder, StoreOrder, StoreOrderStatus, UpdateStoreOrderInput } from "../../shared/contracts";
+import { distanceKm, evaluateDelivery, fulfillmentOf } from "../../shared/delivery";
+import { computeStoreTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
+import type { Ctx } from "../context";
+import { AppError, err, withWriteTx, type Db } from "../db";
+import { bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems } from "../rooms/rooms";
+import { requireOwner } from "../stores/stores";
+import { oneOf, randomId, text } from "../util";
+
+interface OrderRow {
+  id: string;
+  room_id: string;
+  store_id: string;
+  store_name: string;
+  room_title: string;
+  owner_nickname: string;
+  status: StoreOrderStatus;
+  reject_reason: string | null;
+  items_json: string;
+  people_json: string;
+  total_quantity: number;
+  total_twd: number;
+  created_at: number;
+  updated_at: number;
+  fulfillment: "delivery" | "pickup";
+  distance_km: number | null;
+  delivery_min_twd: number | null;
+}
+
+function toOrder(r: OrderRow): StoreOrder {
+  return {
+    id: r.id,
+    roomId: r.room_id,
+    storeId: r.store_id,
+    storeName: r.store_name,
+    roomTitle: r.room_title,
+    ownerNickname: r.owner_nickname,
+    status: r.status,
+    rejectReason: r.reject_reason,
+    items: JSON.parse(r.items_json),
+    people: JSON.parse(r.people_json),
+    totalQuantity: r.total_quantity,
+    totalTwd: r.total_twd,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    fulfillment: r.fulfillment,
+    distanceKm: r.distance_km,
+    deliveryMinTwd: r.delivery_min_twd,
+  };
+}
+
+/** 僅由 closeRoom 在 open → closed 的同一寫入交易內呼叫。 */
+export function createStoreOrders(db: Db, roomId: string, ownerNickname: string): string[] {
+  const room = getRoomRow(db, roomId);
+  const catalog = loadCatalog(db, room);
+  const items = loadItems(db, roomId);
+  const members = listMembers(db, roomId);
+  const totals = computeStoreTotals(catalog, items).filter((s) => s.totalQuantity > 0);
+  const now = Date.now();
+  const insert = db.prepare(`INSERT INTO store_orders
+    (id, room_id, store_id, store_name, room_title, owner_nickname, status, items_json,
+     people_json, total_quantity, total_twd, created_at, updated_at, fulfillment, distance_km, delivery_min_twd)
+    VALUES (?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  for (const store of totals) {
+    const frozen = catalog.stores.find((s) => s.id === store.storeId)!;
+    const km = room.delivery_x === null
+      ? null
+      : distanceKm({ x: room.delivery_x, y: room.delivery_y! }, frozen.door);
+    const delivery = evaluateDelivery(frozen.delivery, km, store.totalTwd);
+    const mealIds = new Set(store.meals.map((m) => m.mealId));
+    const people = members.flatMap((member) => {
+      const mine = sortItemsByCatalog(
+        catalog,
+        items.filter((i) => i.memberId === member.id && mealIds.has(i.mealId)),
+      );
+      if (mine.length === 0) return [];
+      return [
+        {
+          nickname: member.nickname,
+          totalTwd: sumItems(mine).totalTwd,
+          items: mine.map((i) => ({
+            name: store.meals.find((m) => m.mealId === i.mealId)!.name,
+            quantity: i.quantity,
+          })),
+        },
+      ];
+    });
+    insert.run(
+      `so_${randomId(10)}`,
+      roomId,
+      store.storeId,
+      store.name,
+      room.title,
+      ownerNickname,
+      JSON.stringify(store.meals),
+      JSON.stringify(people),
+      store.totalQuantity,
+      store.totalTwd,
+      now,
+      now,
+      fulfillmentOf(delivery),
+      km,
+      delivery.kind === "ok" || delivery.kind === "below-min" ? delivery.minTwd : null,
+    );
+  }
+  return totals.map((s) => s.storeId);
+}
+
+export function roomStoreOrders(db: Db, roomId: string): RoomStoreOrder[] {
+  const rows = db
+    .prepare(
+      `SELECT store_id AS storeId, store_name AS storeName, status,
+    reject_reason AS rejectReason, total_quantity AS totalQuantity, total_twd AS totalTwd,
+    updated_at AS updatedAt, fulfillment, distance_km AS distanceKm,
+    delivery_min_twd AS deliveryMinTwd FROM store_orders WHERE room_id = ? ORDER BY rowid`,
+    )
+    .all(roomId);
+  return rows as unknown as RoomStoreOrder[];
+}
+
+export function listStoreOrders(db: Db, sessionId: string, storeId: string): StoreOrder[] {
+  requireOwner(db, sessionId, storeId);
+  return (
+    db
+      .prepare("SELECT * FROM store_orders WHERE store_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 50")
+      .all(storeId) as unknown as OrderRow[]
+  ).map(toOrder);
+}
+
+const transitions: Record<StoreOrderStatus, StoreOrderStatus[]> = {
+  sent: ["accepted", "rejected"],
+  accepted: ["preparing", "ready"],
+  preparing: ["ready"],
+  ready: [],
+  rejected: [],
+};
+const labels: Record<StoreOrderStatus, string> = {
+  sent: "已送出",
+  accepted: "已接單",
+  preparing: "製作中",
+  ready: "可取餐",
+  rejected: "已拒單",
+};
+
+export function updateStoreOrderStatus(
+  ctx: Ctx,
+  sessionId: string,
+  storeId: string,
+  orderId: string,
+  input: UpdateStoreOrderInput,
+): StoreOrder {
+  const { db } = ctx;
+  const { order, revision } = withWriteTx(db, () => {
+    requireOwner(db, sessionId, storeId);
+    const row = db.prepare("SELECT * FROM store_orders WHERE id = ? AND store_id = ?").get(orderId, storeId) as
+      | OrderRow
+      | undefined;
+    if (!row) throw new AppError("INVALID_INPUT", 404, "找不到這筆訂單");
+    const next = oneOf(input?.status, "訂單狀態", Object.keys(transitions) as StoreOrderStatus[]);
+    if (next === row.status) return { order: toOrder(row), revision: null };
+    if (!transitions[row.status].includes(next)) {
+      throw err.invalid(`訂單狀態無法從 ${labels[row.status]} 變成 ${labels[next]}`);
+    }
+    const reason = next === "rejected" ? text(input?.reason, "拒單原因", 1, 40) : null;
+    const now = Date.now();
+    db.prepare("UPDATE store_orders SET status = ?, reject_reason = ?, updated_at = ? WHERE id = ?").run(
+      next,
+      reason,
+      now,
+      orderId,
+    );
+    const order = toOrder({ ...row, status: next, reject_reason: reason, updated_at: now });
+    return { order, revision: bumpRevision(db, row.room_id) };
+  });
+  if (revision !== null) {
+    ctx.events.roomChanged(order.roomId, revision);
+    ctx.events.storeOrdersChanged(storeId);
+  }
+  return order;
+}
