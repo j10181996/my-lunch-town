@@ -7,6 +7,11 @@ export const EMOTES = [
 ] as const;
 export type EmoteId = typeof EMOTES[number]["id"];
 
+/** 推薦給大家（#91）的泡泡文字；名牌已顯示是誰，這裡只寫餐點。 */
+export function recommendText(mealName: string) {
+  return `👍 推薦「${mealName}」！`;
+}
+
 /** 可以隨角色位置廣播的成就徽章；前端成就清單（web/game/collection.ts）必須一致，測試會檢查。 */
 export const BADGE_IDS = ["visit", "order", "friend", "collect", "shopkeeper", "regular"] as const;
 export type BadgeId = typeof BADGE_IDS[number];

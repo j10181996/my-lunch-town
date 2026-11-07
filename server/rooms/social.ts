@@ -1,5 +1,5 @@
 import { socialEnabled } from "./social-schema";
-import { EMOTES } from "../../shared/social";
+import { EMOTES, recommendText } from "../../shared/social";
 import type { Ctx } from "../context";
 import { err } from "../db";
 import { requireMember } from "./rooms";
@@ -15,16 +15,36 @@ export function setSocial(ctx: Ctx, sid: string, roomId: string, input: unknown)
   return { enabled };
 }
 
+/** 和表情共用頻率限制：每人每秒最多一則；被擋下時回 false。 */
+function takeEmoteSlot(ctx: Ctx, memberId: string) {
+  const now = Date.now();
+  return ctx.db.prepare(`INSERT INTO member_social (member_id, enabled, last_emote_at) VALUES (?, 1, ?)
+    ON CONFLICT(member_id) DO UPDATE SET last_emote_at = excluded.last_emote_at
+    WHERE member_social.last_emote_at <= ?`).run(memberId, now, now - 1000).changes > 0;
+}
+
+/** 推薦給大家（#91）：只能推薦本團收單中的餐點，泡泡文字由伺服器組成，不接受任意文字。 */
+export function recommendMeal(ctx: Ctx, sid: string, roomId: string, input: unknown) {
+  const { room, me } = requireMember(ctx.db, roomId, sid);
+  const mealId = (input as { mealId?: unknown } | null)?.mealId;
+  if (typeof mealId !== "string") throw err.invalid("請選擇要推薦的餐點");
+  if (room.status !== "open") throw err.closed();
+  const meal = ctx.db.prepare("SELECT name FROM room_meals WHERE room_id = ? AND meal_id = ? AND available = 1")
+    .get(roomId, mealId) as { name: string } | undefined;
+  if (!meal) throw err.invalid("這道餐點不在本團菜單上");
+  if (!socialEnabled(ctx.db, me.id)) throw err.notAllowed("請先開啟社交互動");
+  if (!takeEmoteSlot(ctx, me.id)) throw err.invalid("慢一點，等一下再推薦");
+  const text = recommendText(meal.name);
+  ctx.events.bubble(roomId, me.id, text);
+  return { text };
+}
+
 export function sendEmote(ctx: Ctx, sid: string, roomId: string, input: unknown) {
   const { me } = requireMember(ctx.db, roomId, sid);
   const emote = EMOTES.find((e) => e.id === (input as { emote?: unknown } | null)?.emote);
   if (!emote) throw err.invalid("不支援的表情");
   if (!socialEnabled(ctx.db, me.id)) throw err.notAllowed("請先開啟社交互動");
-  const now = Date.now();
-  const sent = ctx.db.prepare(`INSERT INTO member_social (member_id, enabled, last_emote_at) VALUES (?, 1, ?)
-    ON CONFLICT(member_id) DO UPDATE SET last_emote_at = excluded.last_emote_at
-    WHERE member_social.last_emote_at <= ?`).run(me.id, now, now - 1000);
-  if (!sent.changes) throw err.invalid("慢一點，等一下再送表情");
+  if (!takeEmoteSlot(ctx, me.id)) throw err.invalid("慢一點，等一下再送表情");
   ctx.events.bubble(roomId, me.id, emote.text);
   return { text: emote.text };
 }
