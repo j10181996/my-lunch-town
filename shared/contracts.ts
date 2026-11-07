@@ -170,6 +170,7 @@ export interface RoomGateway {
 
 /** Store 補充欄位（宣告合併，選填）：店面風格與街區地段。door 由地段推得。 */
 export interface Store {
+  address?: string;
   styleKey?: string;
   lotIndex?: number;
 }
@@ -186,7 +187,7 @@ export interface RoomPublicInfo {
 
 export interface TownLot {
   index: number;
-  store: { id: Id; name: string; styleKey: string; status: StoreStatus } | null;
+  store: { id: Id; name: string; styleKey: string; status: StoreStatus; address?: string } | null;
 }
 
 export interface AdminMeal {
@@ -200,6 +201,7 @@ export interface AdminMeal {
 }
 
 export interface StoreProfile {
+  address?: string;
   id: Id;
   name: string;
   styleKey: string;

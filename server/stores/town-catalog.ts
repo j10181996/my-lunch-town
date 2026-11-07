@@ -4,6 +4,7 @@ import { lotDoor } from "../../shared/town";
 import type { Db } from "../db";
 
 interface Row {
+  address: string | null;
   id: string;
   name: string;
   style_key: string;
@@ -35,6 +36,7 @@ export function getTownCatalog(db: Db, now = Date.now()): Catalog {
     isSample: stores.length > 0 && stores.every((s) => s.is_sample === 1),
     stores: stores.map((s) => ({
       id: s.id,
+      address: s.address ?? undefined,
       name: s.name,
       sceneId: `shop:${s.id}` as const,
       door: lotDoor(s.lot_index),
