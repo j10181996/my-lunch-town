@@ -5,6 +5,7 @@ import { requireOwner } from "../server/stores/stores";
 import { randomId } from "../server/util";
 import { AppError, err, exportSnapshot, openSnapshot } from "./db";
 import { dispatch } from "./router";
+import { servePageOrAsset } from "./assets";
 
 // These structural types keep the Node development server independent of Wrangler.
 interface Statement {
@@ -87,7 +88,7 @@ async function synchronize(env: Env, ctx: Ctx, sid: string, path: string, body: 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+    if (!url.pathname.startsWith("/api/")) return servePageOrAsset(request, env.ASSETS);
     const headers = new Headers({ "cache-control": "private, no-store", "content-type": "application/json; charset=utf-8", "x-content-type-options": "nosniff" });
     try {
       if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return new Response(null, { status: 405, headers });
