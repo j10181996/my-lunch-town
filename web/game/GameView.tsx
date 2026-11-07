@@ -9,6 +9,7 @@ import { Game } from "./game";
 import { shopkeeperLine } from "./shopkeeper";
 import { ownerCall } from "./owner-calls";
 import { doorEffects, ownerOrderCall } from "./order-progress";
+import { readRegulars, recordMeals, recordVisit, regularGreeting, REGULAR_VISITS, saveRegulars, taipeiDay, tryTasting, type Regulars } from "./regulars";
 import { EmoteControls } from "./EmoteControls";
 import type { EmoteId } from "../../shared/social";
 import { ACHIEVEMENTS, ACCESSORIES, collectibles, readCollection, saveCollection, type AchievementId, type Collection } from "./collection";
@@ -57,6 +58,15 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     collectionRef.current = next; setCollection(next);
     saveCollection(snapRef.current.room.id, snapRef.current.me.id, next);
   }
+  // 常客與試吃紀錄跨團共用（#88、#89），存在瀏覽器。
+  const regularsRef = useRef(readRegulars());
+  const [snacks, setSnacks] = useState(regularsRef.current.snacks);
+  /** 這次進店有幾句是試吃，用來校正台詞輪替。 */
+  const tastingTalks = useRef(0);
+  function updateRegulars(next: Regulars) {
+    if (next === regularsRef.current) return;
+    regularsRef.current = next; setSnacks(next.snacks); saveRegulars(next);
+  }
   function unlock(id: AchievementId) {
     const current = collectionRef.current;
     if (current.achievements.includes(id)) return;
@@ -101,7 +111,13 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     const game = new Game(canvasRef.current!, {
       onSceneChange: (s) => {
         setScene(s);
-        if (s !== "street") unlock("visit");
+        tastingTalks.current = 0;
+        if (s !== "street") {
+          unlock("visit");
+          const next = recordVisit(regularsRef.current, s.slice(5), taipeiDay(Date.now()));
+          updateRegulars(next);
+          if ((next.stores[s.slice(5)]?.visits ?? 0) >= REGULAR_VISITS) unlock("regular");
+        }
         cbRef.current.onSceneChange(s);
       },
       onNearDoor: setNearDoor,
@@ -113,7 +129,18 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
         const streetStore = s.catalog.stores.some((store) => store.id === storeId)
           ? undefined : s.streetStores?.find((store) => store.id === storeId);
         const meals = streetStore ? streetStore.meals ?? [] : s.catalog.meals.filter((m) => m.storeId === storeId);
+        unlock("shopkeeper");
+        // 每家店每天第一次聊天：店主請試吃（#89），這一句取代一般台詞。
+        const storeName = streetStore?.name ?? s.catalog.stores.find((store) => store.id === storeId)?.name ?? "店家";
+        const tasting = tryTasting(regularsRef.current, storeId, storeName, taipeiDay(Date.now()));
+        if (tasting) {
+          tastingTalks.current++;
+          updateRegulars(tasting.data);
+          announce(`${tasting.snack.icon} 試吃了${storeName}的${tasting.snack.name}，放進背包了！`);
+          return `請你試吃${tasting.snack.name}，不用錢！`;
+        }
         return shopkeeperLine({
+          regularGreeting: regularGreeting(regularsRef.current.stores[storeId]),
           meals: meals.filter((m) => m.available),
           ordered: s.myItems.flatMap((item) => {
             const meal = meals.find((m) => m.id === item.mealId);
@@ -122,7 +149,8 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           roomClosed: s.room.status === "closed",
           deadlineAt: s.catalog.stores.find((store) => store.id === storeId)?.orderDeadlineAt ?? null,
           orderStatus: s.storeOrders?.find((order) => order.storeId === storeId)?.status ?? null,
-          solo, notInRoom: !!streetStore, talk, now: Date.now(),
+          // 試吃那句不佔輪替順序，下一句仍從招呼開始。
+          solo, notInRoom: !!streetStore, talk: talk - tastingTalks.current, now: Date.now(),
         });
       },
       onCollect: (id) => {
@@ -171,6 +199,13 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     for (const i of snap.myItems) qty.set(i.mealId, (qty.get(i.mealId) ?? 0) + i.quantity);
     g.setMyQuantities(qty);
     if (snap.myTotalQuantity > 0) unlock("order");
+    // 收單後記下自己點了什麼，店主之後才知道你的最愛（#88）；同一團只記一次。
+    if (!solo && snap.room.status === "closed") {
+      updateRegulars(recordMeals(regularsRef.current, snap.room.id, snap.myItems.flatMap((item) => {
+        const meal = snap.catalog.meals.find((m) => m.id === item.mealId);
+        return meal ? [{ storeId: meal.storeId, name: meal.name, quantity: item.quantity }] : [];
+      })));
+    }
   }, [snap]);
 
   useEffect(() => {
@@ -246,6 +281,10 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
             <div className="bag-heading"><strong>🎒 我的午休收藏</strong><button aria-label="關閉背包" onClick={() => setBagOpen(false)}>×</button></div>
             <p>今日小物 {collection.items.filter((id) => collectibles(snap.room.id, snap.me.id).some((item) => item.id === id)).length} / 5 · 走近發光小物就能撿起</p>
             <div className="bag-items" aria-label="已收集的小物">{collectibles(snap.room.id, snap.me.id).map((item) => <span key={item.id} title={collection.items.includes(item.id) ? "已收集" : "尚未找到"} className={collection.items.includes(item.id) ? "found" : "missing"}>{collection.items.includes(item.id) ? item.icon : "？"}</span>)}</div>
+            <strong>試吃收藏 {snacks.length}</strong>
+            {snacks.length
+              ? <div className="bag-items" aria-label="試吃收藏">{snacks.slice(-10).map((snack) => <span key={snack.id} className="found" title={`${snack.day} ${snack.storeName}的${snack.name}`}>{snack.icon}</span>)}</div>
+              : <p>每天第一次和各家店主聊天，可以試吃一樣小點心</p>}
             <strong>換個造型</strong>
             <div className="accessory-list" role="group" aria-label="角色配件">{ACCESSORIES.map((a) => <button key={a.id} aria-pressed={collection.accessory === a.id} onClick={() => updateCollection({ ...collectionRef.current, accessory: a.id })}>{a.icon} {a.label}</button>)}</div>
             <strong>小鎮成就 {collection.achievements.length} / {ACHIEVEMENTS.length}</strong>
