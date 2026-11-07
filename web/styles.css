@@ -1,3 +1,18 @@
+@font-face {
+  font-family: "Cubic 11";
+  src: url("/fonts/Cubic_11.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans TC";
+  src: url("/fonts/NotoSansTC.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #f6ead2;
   --paper: #fffaf0;
@@ -13,7 +28,8 @@
   --err-bg: #fbe1dc;
   --shadow: 0 2px 0 #d8c39e;
   --radius: 10px;
-  --font: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-pixel: "Cubic 11", "Noto Sans TC", sans-serif;
+  --font: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -23,7 +39,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.5;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -298,3 +314,8 @@ label.field small { font-weight: 400; color: var(--sub); }
   .friend-interact { font-size: 12px; }
 }
 .diet-picker .chip { min-height: 30px; padding: 0 8px; font-size: 13px; border-width: 1px; }
+
+/* Pixel type is reserved for game identity; ordering information stays in Noto. */
+h1, h2, h3, .logo, .btn { font-family: var(--font-pixel); font-weight: 400; }
+.stage-action, .btn.plus, .btn.minus { font-family: var(--font); font-weight: 700; }
+input, select, textarea { font-size: 16px; }
