@@ -319,3 +319,5 @@ label.field small { font-weight: 400; color: var(--sub); }
 h1, h2, h3, .logo, .btn { font-family: var(--font-pixel); font-weight: 400; }
 .stage-action, .btn.plus, .btn.minus { font-family: var(--font); font-weight: 700; }
 input, select, textarea { font-size: 16px; }
+.store-picker { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
+.store-picker legend { font-weight: 700; padding: 0; margin-bottom: 6px; }

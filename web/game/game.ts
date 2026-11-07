@@ -5,6 +5,7 @@ import type { Point, Direction, Meal, MoveInput, PlayerPresence, SceneId, Store 
 import { STREET_W, STREET_H, STREET_SPAWN, sceneSize, viewSize } from "../../shared/town";
 import { CHAR_H, CHAR_W, characterFrames } from "../art/characters";
 import { buildShop, buildStreet, type ProductSlot, type Rect, type SceneArt } from "../art/scenes";
+import type { StreetStore } from "../../shared/contracts";
 
 const SPEED = 84; // 邏輯像素／秒（大地圖走快一點，橫越約 11 秒）
 const FOOT_W = 8;
@@ -65,6 +66,7 @@ export class Game {
 
   private deliveryPoint: Point | null = null;
   private stores: Store[] = [];
+  private streetStores: StreetStore[] = [];
   private meals: Meal[] = [];
   private nearProduct: ProductSlot | null = null;
   private myQty = new Map<string, number>();
@@ -213,13 +215,15 @@ export class Game {
     this.display.height = Math.round(VIEW_H * s * this.dpr);
   }
 
-  setCatalog(stores: Store[], meals: Meal[]) {
-    const sig = catalogSig(stores, meals);
-    const prev = catalogSig(this.stores, this.meals);
+  /** streetStores 只是街景：不在 this.stores，因此不會出現進店提示。 */
+  setCatalog(stores: Store[], meals: Meal[], streetStores: StreetStore[] = []) {
+    const sig = catalogSig(stores, meals, streetStores);
+    const prev = catalogSig(this.stores, this.meals, this.streetStores);
     this.stores = stores;
     this.meals = meals;
+    this.streetStores = streetStores;
     if (sig === prev && this.streetArt) return;
-    this.streetArt = buildStreet(stores);
+    this.streetArt = buildStreet(stores, new Set(), streetStores);
     this.shopArt.clear();
     this.applySceneArt();
   }
@@ -746,9 +750,10 @@ function roundRect(d: CanvasRenderingContext2D, x: number, y: number, w: number,
 
 export type { Rect };
 
-function catalogSig(stores: Store[], meals: Meal[]) {
+function catalogSig(stores: Store[], meals: Meal[], streetStores: StreetStore[]) {
   return [
     ...stores.map((s) => `${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}`),
+    ...streetStores.map((s) => `street:${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}`),
     ...meals.map((m) => `${m.id}:${m.name}:${m.priceTwd}:${m.imageAssetKey}`),
   ].join("|");
 }

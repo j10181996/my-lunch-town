@@ -395,7 +395,10 @@ function shrub(c: Ctx2D, x: number, y: number) {
       { f: "#c7a3d0", L: "#f5dfbd", g: "#507e2c" }, x + dx, y - 3);
   }
 }
-export function buildStreet(stores: Store[], restingIds: Set<string> = new Set()): SceneArt {
+type StreetFront = Pick<Store, "id" | "name" | "styleKey" | "lotIndex">;
+
+/** others：不在本團的店，畫成休息中的店面並標示「不在本團」，不提供進店入口。 */
+export function buildStreet(stores: StreetFront[], restingIds: Set<string> = new Set(), others: StreetFront[] = []): SceneArt {
   const background = makeCanvas(STREET_W, STREET_H), foreground = makeCanvas(STREET_W, STREET_H);
   const c = ctxOf(background), f = ctxOf(foreground);
   const layout = streetLayout();
@@ -403,9 +406,16 @@ export function buildStreet(stores: Store[], restingIds: Set<string> = new Set()
   streetGround(c, layout.paths);
   for (const lot of LOTS) {
     const store = stores.find((s) => s.lotIndex === lot.index);
+    const other = store ? undefined : others.find((s) => s.lotIndex === lot.index);
     if (store) {
       drawStorefront(c, lot.bx, lot.by, styleOf(store.styleKey), restingIds.has(store.id));
       signs.push({ x: lot.bx + 25, y: lot.by + 27, w: 58, text: store.name, size: 7, color: "#593b2c" });
+    } else if (other) {
+      drawStorefront(c, lot.bx, lot.by, styleOf(other.styleKey), true);
+      signs.push({ x: lot.bx + 25, y: lot.by + 27, w: 58, text: other.name, size: 7, color: "#7d6a5c" });
+      // 告示板掛在雨棚上，讓「不在本團」不會和雨棚花色混在一起。
+      box(c, lot.bx + 30, lot.by + 32, 48, 10, "#f4e6c4", "#6b4a2c");
+      signs.push({ x: lot.bx + 32, y: lot.by + 37, w: 44, text: "不在本團", size: 6, color: "#7a3f22" });
     } else {
       emptyLot(c, lot.bx, lot.by);
       signs.push({ x: lot.bx + 28, y: lot.by + 33, w: 40, text: "招租中", size: 7, color: "#785334" });

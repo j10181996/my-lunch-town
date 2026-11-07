@@ -14,7 +14,7 @@ try {
   const outsider = await browser.newContext();
   const owner = await a.newPage(), guest = await b.newPage();
   for (const p of [owner, guest]) p.on("pageerror", (e) => errors.push(e.message));
-  const createdResponse = await a.request.post(base + "/api/rooms", { data: { title: "台中午休冒險團", nickname: "台中團長", requestId: crypto.randomUUID() } });
+  const createdResponse = await a.request.post(base + "/api/rooms", { data: { title: "台中午休冒險團", nickname: "台中團長", requestId: crypto.randomUUID(), storeIds: ["store-af", "store-tree", "store-green"] } });
   assert.equal(createdResponse.status(), 200);
   const { snapshot: initial, invitePath } = await createdResponse.json();
   const root = `/api/rooms/${initial.room.id}`;

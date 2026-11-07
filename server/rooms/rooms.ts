@@ -10,6 +10,7 @@ import type {
   Room,
   RoomPublicInfo,
   RoomSnapshot,
+  StreetStore,
   PaymentInfo,
 } from "../../shared/contracts";
 import { computeStoreTotals, grandTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
@@ -152,6 +153,17 @@ export function loadItems(db: Db, roomId: string, memberId?: string): OrderItem[
   }));
 }
 
+/** 街上目前其他店面；本團店家佔用的店面格以凍結資料為準。 */
+function streetStores(db: Db, catalog: Catalog): StreetStore[] {
+  const taken = new Set(catalog.stores.map((s) => s.lotIndex));
+  const ids = new Set(catalog.stores.map((s) => s.id));
+  const rows = db.prepare("SELECT id, name, style_key, lot_index FROM stores ORDER BY lot_index").all() as
+    Array<{ id: string; name: string; style_key: string; lot_index: number }>;
+  return rows
+    .filter((r) => !ids.has(r.id) && !taken.has(r.lot_index))
+    .map((r) => ({ id: r.id, name: r.name, styleKey: r.style_key, lotIndex: r.lot_index }));
+}
+
 function myPayment(db: Db, roomId: string, memberId: string, amountTwd: number) {
   const status = paymentStatus(db, roomId, memberId);
   return { amountTwd, status, remindedAt: status === "unpaid" ? paymentRemindedAt(db, roomId) : null };
@@ -179,6 +191,7 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
       ? myPayment(db, roomId, me.id, mine.totalTwd) : null,
     lunchParty: lunchParty(db, roomId),
     socialEnabled: socialEnabled(db, me.id),
+    streetStores: streetStores(db, catalog),
     room: toRoom(room),
     me,
     members: listMembers(db, roomId).map((m) => ({ id: m.id, nickname: m.nickname, avatarId: m.avatarId })),
@@ -219,6 +232,19 @@ function pickAvatar(db: Db, roomId: string): string {
   return AVATAR_IDS.find((a) => !set.has(a)) ?? AVATAR_IDS[used.length % AVATAR_IDS.length];
 }
 
+/** 小鎮最多 12 個店面格；排序後納入 digest，勾選順序不同視為同一請求。 */
+const MAX_ROOM_STORES = 12;
+function parseStoreIds(value: unknown): string[] | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length === 0) throw err.invalid("請至少選一家店");
+  if (value.length > MAX_ROOM_STORES * 2 || value.some((v) => typeof v !== "string" || !/^[\w-]{1,40}$/.test(v))) {
+    throw err.invalid("店家格式錯誤");
+  }
+  const ids = [...new Set(value as string[])].sort();
+  if (ids.length > MAX_ROOM_STORES) throw err.invalid(`一團最多選 ${MAX_ROOM_STORES} 家店`);
+  return ids;
+}
+
 export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) {
   const title = text(input?.title, "團名", 1, 20);
   const nickname = text(input?.nickname, "暱稱", 1, 12);
@@ -233,7 +259,10 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
   const avatarId = typeof input?.avatarId === "string" && AVATAR_IDS.includes(input.avatarId) ? input.avatarId : null;
   // 沒選角色時沿用舊 digest，讓舊版前端的重試請求仍然成立。
   const baseDigest = point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
-  const digest = avatarId ? JSON.stringify([baseDigest, avatarId]) : baseDigest;
+  const avatarDigest = avatarId ? JSON.stringify([baseDigest, avatarId]) : baseDigest;
+  const storeIds = parseStoreIds(input?.storeIds);
+  // 沒帶店家只可能是升級前的請求：沿用舊 digest，讓已成功的請求仍能重試，新請求在交易內拒絕。
+  const digest = storeIds ? JSON.stringify([avatarDigest, storeIds]) : avatarDigest;
   const { db } = ctx;
 
   const roomId = withWriteTx(db, () => {
@@ -245,13 +274,15 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
       return (JSON.parse(prev.result_json) as { roomId: string }).roomId;
     }
 
+    if (!storeIds) throw err.invalid("請先選擇要揪的店家");
     const openedAt = Date.now();
-    // 凍結當下所有營業中店家與其供應中餐點
+    // 只凍結團長選的店與其供應中餐點；任何一家不能接單就整團不開，避免默默少一家。
     const stores = db
       .prepare(
-        "SELECT s.* FROM stores s WHERE s.status = 'open' AND EXISTS (SELECT 1 FROM meals m WHERE m.store_id = s.id AND m.available = 1) ORDER BY s.lot_index",
+        `SELECT s.*, EXISTS (SELECT 1 FROM meals m WHERE m.store_id = s.id AND m.available = 1) AS has_meals
+         FROM stores s WHERE s.id IN (${storeIds.map(() => "?").join(", ")}) ORDER BY s.lot_index`,
       )
-      .all() as Array<{
+      .all(...storeIds) as Array<{
         id: string;
         name: string;
         style_key: string;
@@ -259,12 +290,18 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
         is_sample: number;
         delivery_json: string | null;
         hours_json: string | null;
+        status: string;
+        has_meals: number;
       }>;
-    const accepting = stores.filter((s) => storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).open);
-    if (accepting.length === 0) throw err.invalid("小鎮目前沒有營業中的店，請先開店");
+    if (stores.length !== storeIds.length) throw err.invalid("找不到選擇的店家，請重新整理後再選");
+    for (const s of stores) {
+      const open = s.status === "open" && s.has_meals === 1
+        && storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).open;
+      if (!open) throw err.invalid(`「${s.name}」目前沒有營業，請重新選擇店家`);
+    }
 
     const id = randomId(8);
-    const isSample = accepting.every((s) => s.is_sample === 1) ? 1 : 0;
+    const isSample = stores.every((s) => s.is_sample === 1) ? 1 : 0;
     db.prepare(
       `INSERT INTO rooms
         (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y)
@@ -276,7 +313,7 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
         (room_id, store_id, name, style_key, lot_index, door_x, door_y, sort_order, delivery_json, order_deadline_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    accepting.forEach((s, i) => {
+    stores.forEach((s, i) => {
       const door = lotDoor(s.lot_index);
       insStore.run(id, s.id, s.name, s.style_key, s.lot_index, door.x, door.y, i, s.delivery_json, storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).deadline);
     });
