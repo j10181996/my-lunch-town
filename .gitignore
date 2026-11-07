@@ -3,3 +3,7 @@ dist
 data
 smoke-shots
 .DS_Store
+
+.wrangler
+worker/seed.bin
+*.tar.gz

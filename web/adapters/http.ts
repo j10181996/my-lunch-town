@@ -1,3 +1,4 @@
+import * as sitesLive from "./sites-live";
 import { io, type Socket } from "socket.io-client";
 import type {
   CreateStoreResult,
@@ -46,6 +47,7 @@ export const roomGateway: RoomGatewayExt = {
   exportOrder: (roomId) => request<string>("GET", `/api/rooms/${roomId}/export`, undefined, true),
 
   subscribe(roomId, handlers) {
+    if (import.meta.env.VITE_SITES === "1") return sitesLive.subscribeRoom(roomId, handlers);
     socket?.disconnect();
     const s = io({ path: "/socket.io", withCredentials: true });
     socket = s;
@@ -66,10 +68,12 @@ export const roomGateway: RoomGatewayExt = {
   },
 
   move(_roomId: string, input: MoveInput) {
+    if (import.meta.env.VITE_SITES === "1") return sitesLive.move(_roomId, input);
     if (socket?.connected) socket.volatile.emit("player:move", input);
   },
 
   onBubble(handler) {
+    if (import.meta.env.VITE_SITES === "1") return sitesLive.onBubble(handler);
     bubbleListeners.add(handler);
     return () => bubbleListeners.delete(handler);
   },
@@ -81,6 +85,7 @@ export const storeGateway: StoreAdminGateway = {
   updateOrderStatus: (id, orderId, input) =>
     request<StoreOrder>("POST", `/api/stores/${id}/orders/${orderId}/status`, input),
   subscribeOrders(id, onChanged) {
+    if (import.meta.env.VITE_SITES === "1") return sitesLive.subscribeOrders(id, onChanged);
     const s = io({ path: "/socket.io", withCredentials: true, forceNew: true });
     s.on("connect", () => {
       s.emit("store:subscribe", id, (r: { ok: boolean }) => { if (r.ok) onChanged(); });

@@ -25,3 +25,25 @@
 - [已確認的店內方向](assets/shop-interior-approved.png)：暖色點陣店內、角色與櫃檯、右側餐點和個人訂單。
 - `lunch-town-handoff.html` 已內嵌圖片，單獨傳送也可閱讀。
 - 若要連同可編輯資料一起傳送，分享專案 `output` 目錄的 ZIP 資料包。
+
+## Sites 完整功能部署
+
+本 checkout 新增 Cloudflare Workers + D1 部署路徑，保留原有 Node 開發模式。
+
+- `npm run build`：產生 `dist/client`、`dist/server/index.js`、預編譯 SQLite WASM 與 Sites 遷移 metadata。
+- `npm run db:generate`：依 `db/schema.ts` 產生 D1 schema migration。
+- 本機 Worker：先 `npx wrangler d1 migrations apply lunch-town-local --local`，再 `npm run preview:sites`（預設 8787；可直接用 Wrangler 指定其他連接埠）。
+- `SITES_TEST_URL=http://127.0.0.1:8799 node scripts/test-sites.mjs`：僅限本機的多使用者整合測試。
+- 原有 Node：`npm run dev`；Node 正式版請用 `npm run build:node && npm start`。它仍使用原本的 SQLite 與 Socket.IO。
+
+### 資料保存與同步
+
+Sites 使用 SQL.js 執行同一份訂餐領域邏輯，將 SQLite image 存在 D1 `app_state`。每次寫入以 revision compare-and-swap 提交；版本衝突時重跑交易，成功後才回應。原本的 requestId 去重、訂單鎖定、店家權限與付款隱私規則保持一致。既有 `server/routes.ts` 由 Fastify 與 Worker 共用。
+
+此模式適合活動展示與小型團購；每次交易需讀寫完整 image，並非大型服務的逐表 D1 模型。為遵守 D1 單值 2 MB 限制，image 上限設為 1,900,000 bytes，超過時會拒絕本次寫入並保留既有資料；長期或大量使用應改用分片 image 或逐表交易模型。業務表位於 image 內，Sites 的 D1 表格檢視器僅會顯示 envelope 與在線位置。初始 image 使用 `shared/catalog/stores.taichung.json`，只在 D1 尚未初始化時載入，重新部署不會覆蓋資料。
+
+Sites 前端以短輪詢取代 Socket.IO：房間每次完成回應後約 250ms 再同步，店家每秒檢查更新；實際延遲另加網路時間。斷線會顯示離線並自動重試。角色在線資訊存於 D1 `live_presence`，以分頁識別碼區分連線，10 秒未更新即不再顯示；位置不影響訂單版本。伺服器從 Cookie 推導角色身分，重新核對房間與店家權限。
+
+工作階段使用 Secure、HttpOnly、SameSite=Lax Cookie。同一瀏覽器會沿用原有身分；跨瀏覽器須重新加入，店家可使用管理碼找回。`DEMO_KEY` 預設為 `demo`，空字串可停用展示用種子店認領；正式公開營運前請自行設定管理方式。收款功能維持原本的人工回報／確認，沒有串接或執行金流。
+
+新增 Site 預設為私人；部署不會自動開放任何持有網址者存取。

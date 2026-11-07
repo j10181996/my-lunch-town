@@ -1,13 +1,10 @@
+import { hashKey, withWriteTx } from "./db-shared";
+export { hashKey, withWriteTx, AppError, err } from "./db-shared";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { createHash } from "node:crypto";
-import type { DeliveryRules, ErrorCode } from "../shared/contracts";
-
-export function hashKey(key: string): string {
-  return createHash("sha256").update(key.trim()).digest("hex");
-}
+import type { DeliveryRules } from "../shared/contracts";
 
 export type Db = DatabaseSync;
 
@@ -116,27 +113,6 @@ CREATE TABLE IF NOT EXISTS processed_requests (
 );
 `;
 
-export class AppError extends Error {
-  constructor(
-    public code: ErrorCode,
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-export const err = {
-  invalid: (m: string) => new AppError("INVALID_INPUT", 400, m),
-  session: () => new AppError("SESSION_REQUIRED", 401, "請先加入這個團"),
-  notAllowed: (m = "沒有權限") => new AppError("NOT_ALLOWED", 403, m),
-  roomNotFound: () => new AppError("ROOM_NOT_FOUND", 404, "找不到這個團"),
-  mealNotFound: () => new AppError("MEAL_NOT_FOUND", 404, "找不到這個餐點"),
-  closed: () => new AppError("ROOM_CLOSED", 409, "已收單，不能再修改"),
-  conflict: () => new AppError("REQUEST_ID_CONFLICT", 409, "同一個請求 ID 對應了不同內容"),
-  retry: () => new AppError("RETRY_LATER", 503, "系統忙碌，請稍後重試"),
-};
-
 const here = dirname(fileURLToPath(import.meta.url));
 /** 規格附的虛構示範店家（測試與 410 元驗收資料使用）。 */
 export const SAMPLE_SEED = join(here, "../shared/catalog/seed.json");
@@ -153,36 +129,6 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   migratePayment(db);
   seedIfEmpty(db, seedFile);
   return db;
-}
-
-/**
- * 所有持久化寫入走這裡：BEGIN IMMEDIATE 取得寫鎖，fn 內全部成功才提交。
- * node:sqlite 為同步 API，同一行程內交易天然序列化；跨行程鎖忙碌時回 RETRY_LATER。
- */
-export function withWriteTx<T>(db: Db, fn: () => T): T {
-  try {
-    db.exec("BEGIN IMMEDIATE");
-  } catch (e) {
-    if (isBusy(e)) throw err.retry();
-    throw e;
-  }
-  try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
-  } catch (e) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      /* 已回滾 */
-    }
-    if (isBusy(e)) throw err.retry();
-    throw e;
-  }
-}
-
-function isBusy(e: unknown) {
-  return e instanceof Error && /SQLITE_BUSY|database is locked/i.test(e.message);
 }
 
 interface SeedFile {
