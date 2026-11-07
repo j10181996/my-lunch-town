@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { inject } from "./inject";
 import { inflateSync } from "node:zlib";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -164,15 +165,15 @@ it("店家上限仍允許同圖重試，非同步儲存後會重新檢查額度"
 it("共用 API 能上傳與讀取二進位 PNG；無權上傳被拒", async () => {
   const { db, ctx } = fixture(); const app = await buildApp({ ctx });
   try {
-    const claimed = await app.inject({ method: "POST", url: "/api/stores/claim", payload: { manageKey: "demo-store-af" } });
+    const claimed = await inject(app, { method: "POST", url: "/api/stores/claim", payload: { manageKey: "demo-store-af" } });
     const cookie = String(claimed.headers["set-cookie"]).split(";")[0];
-    const response = await app.inject({ method: "POST", url: "/api/stores/store-af/images", headers: { cookie }, payload: { pixels: pixels() } });
+    const response = await inject(app, { method: "POST", url: "/api/stores/store-af/images", headers: { cookie }, payload: { pixels: pixels() } });
     expect(response.statusCode).toBe(200);
-    const image = await app.inject({ method: "GET", url: `/api/meal-images/${response.json().imageAssetKey}` });
+    const image = await inject(app, { method: "GET", url: `/api/meal-images/${response.json().imageAssetKey}` });
     expect(image.statusCode).toBe(200); expect(image.headers["content-type"]).toContain("image/png");
     expect(Array.from(image.rawPayload.subarray(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-    expect((await app.inject({ method: "POST", url: "/api/stores/store-af/images", payload: { pixels: pixels() } })).statusCode).toBe(403);
-    expect((await app.inject({ method: "POST", url: "/api/stores/store-af/images", headers: { cookie }, payload: { pixels: [] } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "GET", url: `/api/meal-images/custom-${"0".repeat(64)}` })).statusCode).toBe(404);
-  } finally { await app.close(); db.close(); }
+    expect((await inject(app, { method: "POST", url: "/api/stores/store-af/images", payload: { pixels: pixels() } })).statusCode).toBe(403);
+    expect((await inject(app, { method: "POST", url: "/api/stores/store-af/images", headers: { cookie }, payload: { pixels: [] } })).statusCode).toBe(400);
+    expect((await inject(app, { method: "GET", url: `/api/meal-images/custom-${"0".repeat(64)}` })).statusCode).toBe(404);
+  } finally { db.close(); }
 });

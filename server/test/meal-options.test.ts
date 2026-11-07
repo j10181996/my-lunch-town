@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { inject } from "./inject";
 import { DatabaseSync } from "node:sqlite";
-import type { FastifyInstance } from "fastify";
+import type { Hono } from "hono";
 import { buildApp } from "../app";
 import { SAMPLE_SEED, openDb, type Db } from "../db";
 import type { Ctx } from "../context";
@@ -8,7 +9,7 @@ import { migrateMealOptions } from "../orders/options-schema";
 import { lineKeyOf, resolveChoices, validateOptionGroups } from "../../shared/meal-options";
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
-let app: FastifyInstance;
+let app: Hono;
 let db: Db;
 let changes: number;
 let n = 0;
@@ -24,7 +25,7 @@ beforeEach(async () => {
 function client() {
   let cookie = "";
   const call = async (method: "GET" | "POST" | "PATCH", url: string, body?: unknown) => {
-    const res = await app.inject({ method, url, payload: body as never, headers: cookie ? { cookie } : {} });
+    const res = await inject(app, { method, url, payload: body as never, headers: cookie ? { cookie } : {} });
     const set = res.headers["set-cookie"];
     if (set) cookie = String(Array.isArray(set) ? set[0] : set).split(";")[0];
     const isJson = String(res.headers["content-type"] ?? "").includes("json");

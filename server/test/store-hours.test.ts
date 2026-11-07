@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { inject } from "./inject";
 import { DatabaseSync } from "node:sqlite";
 import type { StoreHours } from "../../shared/contracts";
 import { storeOpening, validateStoreHours } from "../../shared/store-hours";
@@ -104,14 +105,14 @@ it("hours API enforces owner permissions, validates input, and can remove the sc
   const db = openDb(":memory:", SAMPLE_SEED);
   const app = await buildApp({ ctx: { db, events: noopEvents } });
   try {
-    const claim = await app.inject({ method: "POST", url: "/api/stores/claim", payload: { manageKey: "demo-store-af" } });
+    const claim = await inject(app, { method: "POST", url: "/api/stores/claim", payload: { manageKey: "demo-store-af" } });
     const cookie = String(claim.headers["set-cookie"]).split(";")[0];
     const url = "/api/stores/store-af/hours";
-    expect((await app.inject({ method: "PUT", url, payload: hours() })).statusCode).toBe(403);
-    expect((await app.inject({ method: "PUT", url, headers: { cookie }, payload: {} })).statusCode).toBe(400);
-    const saved = await app.inject({ method: "PUT", url, headers: { cookie }, payload: hours() });
+    expect((await inject(app, { method: "PUT", url, payload: hours() })).statusCode).toBe(403);
+    expect((await inject(app, { method: "PUT", url, headers: { cookie }, payload: {} })).statusCode).toBe(400);
+    const saved = await inject(app, { method: "PUT", url, headers: { cookie }, payload: hours() });
     expect(saved.statusCode).toBe(200); expect(saved.json().hours).toEqual(hours());
-    const reset = await app.inject({ method: "PUT", url, headers: { cookie, "content-type": "application/json" }, payload: "null" });
+    const reset = await inject(app, { method: "PUT", url, headers: { cookie, "content-type": "application/json" }, payload: "null" });
     expect(reset.statusCode).toBe(200); expect(reset.json().hours).toBeNull();
-  } finally { await app.close(); db.close(); }
+  } finally { db.close(); }
 });

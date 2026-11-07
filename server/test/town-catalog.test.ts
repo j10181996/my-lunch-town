@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { FastifyInstance } from "fastify";
+import { inject } from "./inject";
+import type { Hono } from "hono";
 import type { Catalog } from "../../shared/contracts";
 import { lotDoor } from "../../shared/town";
 import { buildApp } from "../app";
 import { noopEvents } from "../context";
 import { SAMPLE_SEED, openDb, type Db } from "../db";
 
-let app: FastifyInstance;
+let app: Hono;
 let db: Db;
 
 beforeEach(async () => {
@@ -15,7 +16,7 @@ beforeEach(async () => {
 });
 
 async function catalog(): Promise<Catalog> {
-  const res = await app.inject({ method: "GET", url: "/api/town/catalog" });
+  const res = await inject(app, { method: "GET", url: "/api/town/catalog" });
   expect(res.statusCode).toBe(200);
   return res.json();
 }

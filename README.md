@@ -2,7 +2,7 @@
 
 公司內部的多人點陣訂餐平台。團主分享團網址，團員操控角色逛店、加減餐點，團主彙總收單，店家在後台處理訂單。
 
-目前保留 lunch-town 的 React、Vite、Fastify、Socket.IO 與 Node SQLite 開發模式，並已新增 Workers／D1 的 Sites 部署路徑。ChatGPT 登入、內部成員授權與店家邀請制仍由對應 issues 追蹤。
+目前保留 lunch-town 的 React、Vite、Hono、Socket.IO 與 Node SQLite 開發模式，並已新增 Workers／D1 的 Sites 部署路徑。ChatGPT 登入、內部成員授權與店家邀請制仍由對應 issues 追蹤。
 
 ## 本機啟動
 
@@ -40,7 +40,7 @@ HOST=127.0.0.1 SEED_FILE=shared/catalog/seed.json DEMO_KEY= npm start
 
 ### 資料保存與同步
 
-Sites 使用 SQL.js 執行同一份訂餐領域邏輯，將 SQLite image 存在 D1 `app_state`。每次寫入以 revision compare-and-swap 提交；版本衝突時重跑交易，成功後才回應。原本的 requestId 去重、訂單鎖定、店家權限與付款隱私規則保持一致。既有 `server/routes.ts` 由 Fastify 與 Worker 共用。
+Sites 使用 SQL.js 執行同一份訂餐領域邏輯，將 SQLite image 存在 D1 `app_state`。每次寫入以 revision compare-and-swap 提交；版本衝突時重跑交易，成功後才回應。原本的 requestId 去重、訂單鎖定、店家權限與付款隱私規則保持一致。API 路由（`server/api.ts`，Hono）由 Node 與 Worker 共用。
 
 此模式適合活動展示與小型團購；每次交易需讀寫完整 image，並非大型服務的逐表 D1 模型。為遵守 D1 單值 2 MB 限制，image 上限設為 1,900,000 bytes，超過時會拒絕本次寫入並保留既有資料；長期或大量使用應改用分片 image 或逐表交易模型。業務表位於 image 內，Sites 的 D1 表格檢視器僅會顯示 envelope 與在線位置。初始 image 使用 `shared/catalog/stores.taichung.json`，只在 D1 尚未初始化時載入，重新部署不會覆蓋資料。
 

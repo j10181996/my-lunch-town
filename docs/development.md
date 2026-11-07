@@ -1,6 +1,6 @@
 # 開發指南
 
-午餐小鎮的同一份訂餐領域邏輯要跑在兩種執行環境：本機開發用的 Node（Fastify、`node:sqlite`、Socket.IO），以及 Sites 部署用的 Cloudflare Worker（sql.js、D1、短輪詢）。這份文件說明程式怎麼分層、兩種環境如何共用程式碼，以及修改時哪些地方必須兩邊一起改。
+午餐小鎮的同一份訂餐領域邏輯要跑在兩種執行環境：本機開發用的 Node（Hono＋`@hono/node-server`、`node:sqlite`、Socket.IO），以及 Sites 部署用的 Cloudflare Worker（sql.js、D1、短輪詢）。這份文件說明程式怎麼分層、兩種環境如何共用程式碼，以及修改時哪些地方必須兩邊一起改。
 
 啟動、建置、部署指令與資料保存方式見 [README](../README.md)；分支、commit 與 PR 流程見 [Git 流程](git-flow.md)。這裡不重複。
 
@@ -10,7 +10,7 @@
 
 ```text
 shared/   前後端共用：型別契約、計價、外送、收款驗證、營業時間、街區常數、表情清單（純函式）
-server/   訂餐領域邏輯與 Node 執行環境（Fastify 路由、node:sqlite、Socket.IO）
+server/   訂餐領域邏輯、共用 API 路由（Hono）與 Node 執行環境（node:sqlite、Socket.IO）
 worker/   Sites 執行環境：把 server/ 的路由與領域模組包進 Worker，改用 sql.js + D1
 web/      React 前端：頁面、遊戲畫面（Canvas）、原創像素素材、API 轉接層
 db/       D1 外層表格的 Drizzle schema（app_state、live_presence），產生 drizzle/ 遷移
@@ -26,8 +26,8 @@ scripts/  建置腳本與本機整合／瀏覽器測試
 ```text
 web/state/useRoom.ts ─ roomGateway（web/adapters/http.ts）
   └─ POST /api/rooms/:id/order-delta
-       ├─ Node：Fastify（server/app.ts）→ server/routes.ts
-       └─ Sites：worker/index.ts → worker/router.ts → server/routes.ts
+       ├─ Node：server/app.ts → readApiRequest → server/api.ts
+       └─ Sites：worker/index.ts → readApiRequest → 快照交易 → server/api.ts
             └─ server/orders/orders.ts changeQuantity(ctx, sid, roomId, input)
                  └─ withWriteTx：去重 → 驗證 → 寫入 → bumpRevision
             └─ ctx.events.roomChanged(roomId, revision)
@@ -37,7 +37,7 @@ web/state/useRoom.ts ─ roomGateway（web/adapters/http.ts）
 
 ### 共用的部分
 
-`server/routes.ts` 是唯一的路由表。Node 直接把它註冊到 Fastify；Worker 的 `worker/router.ts` 傳入一個只收集 `get/post/...` 呼叫的假 app，再自行比對路徑與參數。因此新增 API 只要改 `server/routes.ts`，兩邊同時生效，但 handler 只能使用 `req.sid`、`req.body`、`req.params` 與 `reply.type().send()`，不能依賴其他 Fastify 功能。
+`server/api.ts` 的 Hono app `api` 是唯一的路由表。兩個執行環境都先以 `readApiRequest` 做請求前處理（外站 Origin 的寫入回 403、取得或建立 `lt_sid` 工作階段、讀取最多 64 KB 的 JSON body），再呼叫 `api.fetch(request, { ctx, sid, body, demoKey })`；Worker 在快照交易內呼叫，回應成功的寫入才寫回 D1。handler 只從 `c.env` 取得 `ctx`、`sid`、`body`，不可自行讀 request body。錯誤由 `errorResponse` 轉成 `{ code, message }`；API 回應一律帶 `cache-control: private, no-store` 與 `nosniff`。
 
 領域模組（`server/rooms`、`server/orders`、`server/stores`）只透過 `Ctx`（`server/context.ts`）取得 `db` 與 `events`，所有讀寫都是同步的 `db.prepare(...).get/all/run` 與 `db.exec`。這個最小介面是兩種環境能共用程式的前提。
 
@@ -55,7 +55,7 @@ web/state/useRoom.ts ─ roomGateway（web/adapters/http.ts）
 
 Worker 每個請求都把整個 image 載入 sql.js，執行領域函式後匯出，以 `revision` 做 compare-and-swap 寫回 D1。版本衝突時整筆重跑，最多 8 次，仍失敗則回 `RETRY_LATER`。GET 請求不寫回。image 超過 1,900,000 bytes 會拒絕寫入（D1 單值上限 2 MB）。
 
-角色位置與表情泡泡這類即時資料不進訂單版本：位置存在 D1 的 `live_presence`（10 秒過期），泡泡存在 image 內的 `live_bubbles`（60 秒清除）。`/api/rooms/:id/live` 與 `/api/stores/:id/live` 只存在於 Worker，由 `worker/index.ts` 的 `synchronize` 處理，不在 `server/routes.ts`。
+角色位置與表情泡泡這類即時資料不進訂單版本：位置存在 D1 的 `live_presence`（10 秒過期），泡泡存在 image 內的 `live_bubbles`（60 秒清除）。`/api/rooms/:id/live` 與 `/api/stores/:id/live` 只存在於 Worker，由 `worker/index.ts` 的 `live` 路由處理，讀取唯讀的快照快取，不在 `server/api.ts`。
 
 ## 領域規則
 
@@ -120,9 +120,9 @@ NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；�
 
 1. 在對應領域模組寫函式，簽名沿用 `(ctx 或 db, sessionId, ...params, body)`，先做身分檢查，寫入包在 `withWriteTx`。
 2. 型別加到 `shared/contracts.ts`。
-3. 在 `server/routes.ts` 註冊路由；路徑參數只能是 `:name` 形式（Worker 的比對器只支援這種）。
+3. 在 `server/api.ts` 註冊路由，回傳 `c.json(...)`。
 4. 在 `web/adapters/http.ts` 的 gateway 加上對應方法。
-5. 在 `server/test/` 以 `app.inject` 測試；若涉及 Sites 特有行為，補 `scripts/test-sites.mjs`。
+5. 在 `server/test/` 以 `inject(app, ...)`（`server/test/inject.ts`）測試；若涉及 Sites 特有行為，補 `scripts/test-sites.mjs`。
 
 ### 新增或修改業務表欄位
 
@@ -138,7 +138,7 @@ NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；�
 
 ### 新增即時事件
 
-Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realtime.ts`（Socket.IO），Sites 在 `worker/index.ts` 的 `synchronize` 與 `web/adapters/sites-live.ts`。新增事件時兩邊都要做，並在 `RoomEvents`（`server/context.ts`）加上方法；Worker 端若不需推送可留 no-op，靠輪詢補上。
+Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realtime.ts`（Socket.IO），Sites 在 `worker/index.ts` 的 `live` 路由與 `web/adapters/sites-live.ts`。新增事件時兩邊都要做，並在 `RoomEvents`（`server/context.ts`）加上方法；Worker 端若不需推送可留 no-op，靠輪詢補上。
 
 ### 店家種子
 
@@ -149,7 +149,7 @@ Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realti
 | 指令 | 內容 | 需要 |
 | --- | --- | --- |
 | `npm run typecheck` | `tsc --noEmit`，涵蓋 shared、server、web、worker | — |
-| `npm test` | Vitest：`server/test/` 以 `openDb(":memory:", SAMPLE_SEED)` 與 `app.inject` 跑 API；`worker/assets.test.ts` 驗證 Sites 頁面路由 | — |
+| `npm test` | Vitest：`server/test/` 以 `openDb(":memory:", SAMPLE_SEED)` 與 `inject(app, ...)` 跑 API；`worker/assets.test.ts` 驗證 Sites 頁面路由 | — |
 | `npm run build` | Sites 建置，同時驗證 Worker 打包與 sql.js 修補 | — |
 | `scripts/test-sites.mjs` | 對本機 Wrangler 跑多使用者 API 流程 | 本機 Worker |
 | `scripts/smoke.mjs` | 三個瀏覽器工作階段：開店、開團、點餐、收單、接單、收款 | Node 建置版 + Chrome |
@@ -158,6 +158,6 @@ Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realti
 | `scripts/smoke-bag-quests.mjs` | 任務導引後鍵盤／真觸控移動、背包獨立入口與窄版捲動 | 開發伺服器 + Chrome |
 | `scripts/smoke-mobile.mjs` | 手機尺寸與真觸控事件：搖桿走路、觸控點餐、面板收合 | 開發伺服器 + Chrome |
 
-`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`regulars.test.ts` 是常客紀錄、每日試吃與成就徽章清單；`likes.test.ts` 是給店家按讚的權限、去重與店家後台統計；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限；`meal-options.test.ts` 是餐點選項與備註的設定、計價、匯出、去重、並發與遷移；`migrations.test.ts` 是版本化遷移：基線與舊庫升級一致、只套用一次、失敗回滾。
+`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`regulars.test.ts` 是常客紀錄、每日試吃與成就徽章清單；`likes.test.ts` 是給店家按讚的權限、去重與店家後台統計；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限；`meal-options.test.ts` 是餐點選項與備註的設定、計價、匯出、去重、並發與遷移；`migrations.test.ts` 是版本化遷移：基線與舊庫升級一致、只套用一次、失敗回滾。`http.test.ts` 是共用的請求處理：工作階段 Cookie、Origin 檢查、body 上限與格式、快取標頭、404。
 
 瀏覽器與 Sites 腳本只允許對 `localhost`／`127.0.0.1` 執行，並會寫入測試資料，請用獨立的 `DATA_DIR` 或本機 D1。

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { FastifyInstance } from "fastify";
+import { inject } from "./inject";
+import type { Hono } from "hono";
 import type { MyRoomSummary } from "../../shared/contracts";
 import { buildApp } from "../app";
 import { SAMPLE_SEED, openDb, type Db } from "../db";
@@ -7,7 +8,7 @@ import { noopEvents } from "../context";
 import { MY_ROOMS_LIMIT } from "../rooms/history";
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
-let app: FastifyInstance;
+let app: Hono;
 let db: Db;
 let n = 0;
 const rid = () => `req-${Date.now()}-${n++}-xxxx`;
@@ -21,7 +22,7 @@ beforeEach(async () => {
 function client(initial = "") {
   let cookie = initial;
   const call = async (method: "GET" | "POST", url: string, body?: unknown) => {
-    const res = await app.inject({ method, url, payload: body as never, headers: cookie ? { cookie } : {} });
+    const res = await inject(app, { method, url, payload: body as never, headers: cookie ? { cookie } : {} });
     const set = res.headers["set-cookie"];
     if (set) cookie = String(Array.isArray(set) ? set[0] : set).split(";")[0];
     return { status: res.statusCode, body: res.json() };

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FastifyInstance } from "fastify";
+import { inject } from "./inject";
+import type { Hono } from "hono";
 import { buildApp } from "../app";
 import { SAMPLE_SEED, openDb, type Db } from "../db";
 import type { Ctx } from "../context";
 import { closeExpiredRooms, migrateDeadline } from "../rooms/deadline";
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
-let app: FastifyInstance;
+let app: Hono;
 let ctx: Ctx;
 let db: Db;
 let storeChanges: string[];
@@ -16,7 +17,7 @@ const T0 = Date.UTC(2026, 10, 9, 3, 30); // 台灣時間 11:30
 const MIN = 60_000;
 
 beforeEach(async () => {
-  // 只假造 Date：Fastify inject 仍使用真的計時器。
+  // 只假造 Date：app.request 仍使用真的計時器。
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(T0);
   storeChanges = [];
@@ -32,7 +33,7 @@ afterEach(() => vi.useRealTimers());
 function client() {
   let cookie = "";
   const call = async (method: "GET" | "POST" | "PUT", url: string, body?: unknown) => {
-    const res = await app.inject({ method, url, payload: body as never, headers: cookie ? { cookie } : {} });
+    const res = await inject(app, { method, url, payload: body as never, headers: cookie ? { cookie } : {} });
     const set = res.headers["set-cookie"];
     if (set) cookie = String(Array.isArray(set) ? set[0] : set).split(";")[0];
     return { status: res.statusCode, body: res.json() };
