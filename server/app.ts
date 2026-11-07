@@ -31,6 +31,15 @@ export async function buildApp({ ctx, staticDir, secureCookie = false, demoKey }
   app.decorateRequest("sid", "");
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url.startsWith("/api/")) return;
+    if (ctx.platformAuth) {
+      // This branch exists for adapter tests. The production Sites Worker resolves the
+      // actor per request and performs the equivalent insert before dispatching.
+      if (ctx.actor) {
+        db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").run(ctx.actor.sessionId, Date.now());
+        req.sid = ctx.actor.sessionId;
+      }
+      return;
+    }
     let sid = req.cookies[SESSION_COOKIE];
     if (!sid || !SID_RE.test(sid)) {
       sid = randomId(24);

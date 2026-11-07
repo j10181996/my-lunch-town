@@ -5,8 +5,11 @@ import { errorText, newRequestId } from "../api";
 import { link, navigate } from "../router";
 import { Storefront, TopBar } from "../ui";
 import { TownMap } from "../TownMap";
+import { isSitesBuild, useAuth } from "../auth";
 
 export function Home() {
+  const auth = useAuth();
+  const canCreateStore = !isSitesBuild || auth?.admin === true;
   const [deliveryPoint, setDeliveryPoint] = useState<Point | null>(() => {
     try {
       const p = JSON.parse(localStorageGet("lt-delivery-point"));
@@ -101,7 +104,7 @@ export function Home() {
             </small>
           </form>
 
-          <section className="panel">
+          {canCreateStore && <section className="panel">
             <h2>我要開店</h2>
             <p className="muted" style={{ margin: 0 }}>
               在小鎮租一個店面、擺上點陣菜單。營業中的店會出現在之後開的每一團。
@@ -132,7 +135,7 @@ export function Home() {
               </label>
               {claimError && <div className="banner error">{claimError}</div>}
             </form>
-          </section>
+          </section>}
         </div>
 
         <section className="panel">
