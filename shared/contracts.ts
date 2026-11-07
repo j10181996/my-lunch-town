@@ -413,5 +413,7 @@ export interface MyRoomSummary {
   nickname: string;
   avatarId: string;
   deliveryPoint: Point | null;
+  /** 團員本來就看得到送餐地址，「再揪一次」一併沿用。 */
+  deliveryAddress: string | null;
   stores: Array<{ id: Id; name: string }>;
 }
