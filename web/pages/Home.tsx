@@ -1,15 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { Point, StoreProfile, TownLot } from "../../shared/contracts";
+import type { Point, TownLot } from "../../shared/contracts";
 import { roomGateway, storeGateway } from "../adapters/http";
 import { errorText, newRequestId } from "../api";
 import { link, navigate } from "../router";
 import { Storefront, TopBar } from "../ui";
 import { TownMap } from "../TownMap";
-import { isSitesBuild, useAuth } from "../auth";
 
 export function Home() {
-  const auth = useAuth();
-  const canCreateStore = !isSitesBuild || auth?.admin === true;
   const [deliveryPoint, setDeliveryPoint] = useState<Point | null>(() => {
     try {
       const p = JSON.parse(localStorageGet("lt-delivery-point"));
@@ -29,13 +26,9 @@ export function Home() {
   const [error, setError] = useState("");
   const [requestId] = useState(newRequestId); // 開團重試沿用同一個 ID
   const [town, setTown] = useState<TownLot[]>([]);
-  const [mine, setMine] = useState<StoreProfile[]>([]);
-  const [key, setKey] = useState("");
-  const [claimError, setClaimError] = useState("");
 
   useEffect(() => {
     storeGateway.getTown().then(setTown).catch(() => {});
-    storeGateway.myStores().then(setMine).catch(() => {});
   }, []);
 
   const openCount = town.filter((l) => l.store?.status === "open").length;
@@ -54,89 +47,48 @@ export function Home() {
     }
   }
 
-  async function claim(e: FormEvent) {
-    e.preventDefault();
-    setClaimError("");
-    try {
-      const p = await storeGateway.claimStore(key);
-      navigate(`/shop/${p.id}`);
-    } catch (err) {
-      setClaimError(errorText(err));
-    }
-  }
-
   return (
     <div className="page">
-      <TopBar />
+      <TopBar>
+        <span className="spacer" />
+        <a className="btn" {...link("/shop")}>
+          店家入口
+        </a>
+      </TopBar>
       <main className="page-body">
-        <div className="hero">
-          <form className="panel" onSubmit={create}>
-            <h2>我要揪團</h2>
-            <p className="muted" style={{ margin: 0 }}>
-              開一團、把網址丟到群組，大家操控角色逛店、按 ＋1 點自己的餐，你直接看到彙總。
-            </p>
-            <label className="field">
-              團名
-              <input type="text" value={title} maxLength={20} onChange={(e) => setTitle(e.target.value)} required />
-            </label>
-            <label className="field">
-              你的暱稱 <small>1 至 12 個字</small>
-              <input type="text" value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} required />
-            </label>
-            <div className="stack delivery-picker">
-              <strong>送餐地點（點地圖選擇）</strong>
-              <TownMap town={town} marker={deliveryPoint} onPick={pickDelivery}
-                renderLot={(lot) => lot.store ? <div>
-                  <Storefront styleKey={lot.store.styleKey} resting={lot.store.status !== "open"} />
-                  <div className="lot-label">{lot.store.name}</div>
-                </div> : <div className="lot-label">空地</div>} />
-              <small className="muted">{deliveryPoint ? "已選送餐地點，收單時依各店門檻決定外送或自取。" : "未選送餐地點，全部自取。"}</small>
-              <button type="button" className="btn small" onClick={() => pickDelivery(null)}>
-                不外送，全部自取
-              </button>
-            </div>
-            {error && <div className="banner error">{error}</div>}
-            <button className="btn primary big" disabled={busy || openCount === 0}>
-              {busy ? "開團中…" : "開團並取得邀請網址"}
+        <form className="panel" onSubmit={create}>
+          <h2>我要揪團</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            開一團、把網址丟到群組，大家操控角色逛店、按 ＋1 點自己的餐，你直接看到彙總。
+          </p>
+          <label className="field">
+            團名
+            <input type="text" value={title} maxLength={20} onChange={(e) => setTitle(e.target.value)} required />
+          </label>
+          <label className="field">
+            你的暱稱 <small>1 至 12 個字</small>
+            <input type="text" value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} required />
+          </label>
+          <div className="stack delivery-picker">
+            <strong>送餐地點（點地圖選擇）</strong>
+            <TownMap town={town} marker={deliveryPoint} onPick={pickDelivery}
+              renderLot={(lot) => lot.store ? <div>
+                <Storefront styleKey={lot.store.styleKey} resting={lot.store.status !== "open"} />
+                <div className="lot-label">{lot.store.name}</div>
+              </div> : <div className="lot-label">空地</div>} />
+            <small className="muted">{deliveryPoint ? "已選送餐地點，收單時依各店門檻決定外送或自取。" : "未選送餐地點，全部自取。"}</small>
+            <button type="button" className="btn small" onClick={() => pickDelivery(null)}>
+              不外送，全部自取
             </button>
-            <small className="muted">
-              {openCount > 0 ? `小鎮目前有 ${openCount} 家店營業中，開團時會固定這一版菜單與價格。` : "小鎮目前沒有營業中的店，請先開店。"}
-            </small>
-          </form>
-
-          {canCreateStore && <section className="panel">
-            <h2>我要開店</h2>
-            <p className="muted" style={{ margin: 0 }}>
-              在小鎮租一個店面、擺上點陣菜單。營業中的店會出現在之後開的每一團。
-            </p>
-            <a className="btn green big" {...link("/shop/new")}>
-              開一家新店
-            </a>
-            {mine.length > 0 && (
-              <div className="stack">
-                <strong>我的店</strong>
-                {mine.map((s) => (
-                  <a key={s.id} className="btn" {...link(`/shop/${s.id}`)} style={{ justifyContent: "space-between" }}>
-                    <span>{s.name}</span>
-                    <span className="muted">{s.status === "open" ? "營業中" : "休息中"}</span>
-                  </a>
-                ))}
-              </div>
-            )}
-            <form className="stack" onSubmit={claim}>
-              <label className="field">
-                用管理碼找回我的店 <small>換裝置或清除瀏覽資料後使用</small>
-                <div className="row" style={{ flexWrap: "nowrap" }}>
-                  <input type="text" value={key} onChange={(e) => setKey(e.target.value)} placeholder="xxxx-xxxx-xxxx" />
-                  <button className="btn" disabled={!key.trim()}>
-                    認領
-                  </button>
-                </div>
-              </label>
-              {claimError && <div className="banner error">{claimError}</div>}
-            </form>
-          </section>}
-        </div>
+          </div>
+          {error && <div className="banner error">{error}</div>}
+          <button className="btn primary big" disabled={busy || openCount === 0}>
+            {busy ? "開團中…" : "開團並取得邀請網址"}
+          </button>
+          <small className="muted">
+            {openCount > 0 ? `小鎮目前有 ${openCount} 家店營業中，開團時會固定這一版菜單與價格。` : "小鎮目前沒有營業中的店，請等店家開門營業。"}
+          </small>
+        </form>
 
         <section className="panel">
           <h2>小鎮街景</h2>

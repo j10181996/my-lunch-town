@@ -1,3 +1,4 @@
+import { SOCIAL_SCHEMA } from "../server/rooms/social-schema";
 import initSqlJs, { type Database, type SqlValue } from "sql.js/dist/sql-wasm-browser.js";
 import sqliteWasm from "./sqlite.wasm";
 import seedBytes from "./seed.bin";
@@ -18,6 +19,7 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
   const SQL = await sqlite;
   const raw = new SQL.Database(bytes ? new Uint8Array(bytes) : seedBytes);
   raw.exec("PRAGMA foreign_keys = ON");
+  raw.exec(SOCIAL_SCHEMA);
   // Match node:sqlite's small synchronous surface used by the domain modules.
   // Every statement is freed, including reads returning no rows.
   const query = (sql: string, args: SqlValue[], all: boolean) => {

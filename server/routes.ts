@@ -1,3 +1,4 @@
+import { sendEmote, setSocial } from "./rooms/social";
 import type { FastifyInstance } from "fastify";
 import type { Ctx } from "./context";
 import { createRoom, buildSnapshot, getPublicInfo, joinRoom } from "./rooms/rooms";
@@ -49,6 +50,9 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
     };
   });
 
+  app.post<{ Params: P }>("/api/rooms/:id/emote", async (req) => sendEmote(ctx, req.sid, req.params.id, req.body));
+  app.put<{ Params: P }>("/api/rooms/:id/social", async (req) => setSocial(ctx, req.sid, req.params.id, req.body));
+
   // —— 團購 ——
   app.post("/api/rooms", async (req) => { requireInternalMember(ctx); return createRoom(ctx, sid(req), req.body as never); });
   app.get<{ Params: P }>("/api/rooms/:id/public", async (req) => { requireInternalMember(ctx); return getPublicInfo(db, req.params.id); });
@@ -93,7 +97,12 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   );
   app.get("/api/town", async () => { requireInternalMember(ctx); return getTown(db); });
   app.get("/api/my/stores", async (req) => { requireActor(ctx); return myStores(db, sid(req)); });
-  app.post("/api/stores", async (req) => { requireAdmin(ctx); return createStore(db, sid(req), req.body as never); });
+  app.post("/api/stores", async (req) => {
+    requireAdmin(ctx);
+    const created = createStore(db, sid(req), req.body as never);
+    // 管理碼是本機 legacy 流程；Sites 的建立者已直接成為店家管理者。
+    return ctx.platformAuth ? { ...created, manageKey: null } : created;
+  });
   app.post("/api/stores/claim", async (req) => {
     if (ctx.platformAuth) { requireActor(ctx); throw err.notAllowed("ChatGPT Sites 僅能用店家邀請取得管理權"); }
     return claimStore(db, sid(req), (req.body as { manageKey?: unknown } | undefined)?.manageKey, demoKey);

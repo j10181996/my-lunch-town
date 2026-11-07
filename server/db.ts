@@ -1,3 +1,4 @@
+import { SOCIAL_SCHEMA } from "./rooms/social-schema";
 import { hashKey, withWriteTx } from "./db-shared";
 export { hashKey, withWriteTx, AppError, err } from "./db-shared";
 import { DatabaseSync } from "node:sqlite";
@@ -148,6 +149,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   db.exec("PRAGMA busy_timeout = 2000; PRAGMA foreign_keys = ON;");
   if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
+  db.exec(SOCIAL_SCHEMA);
   migrateDelivery(db, seedFile);
   migratePayment(db);
   seedIfEmpty(db, seedFile);
