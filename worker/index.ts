@@ -3,7 +3,7 @@ import type { Ctx } from "../server/context";
 import { requireMember } from "../server/rooms/rooms";
 import { requireOwner } from "../server/stores/stores";
 import { randomId } from "../server/util";
-import { AppError, err, exportSnapshot, openSnapshot } from "./db";
+import { AppError, err, exportSnapshot, openSnapshot, type Db } from "./db";
 import { dispatch } from "./router";
 
 // These structural types keep the Node development server independent of Wrangler.
@@ -22,6 +22,7 @@ interface Stored { revision: number; bytes: number[] | ArrayBuffer }
 const SID_RE = /^[a-z0-9]{24}$/;
 const MAX_SNAPSHOT_BYTES = 1_900_000; // D1's per-value limit is 2 MB.
 const PRESENCE_TTL = 10_000;
+const PRESENCE_SWEEP_RATE = 0.05;
 
 function validMove(value: unknown): value is MoveInput {
   const m = value as MoveInput | null;
@@ -46,14 +47,47 @@ async function load(env: Env): Promise<Stored> {
   return initial;
 }
 
-async function synchronize(env: Env, ctx: Ctx, sid: string, path: string, body: unknown, revision: number) {
+type Snapshot = Awaited<ReturnType<typeof openSnapshot>>;
+interface LiveCache extends Snapshot { revision: number }
+/**
+ * Polling reuses one opened snapshot per isolate while D1's revision is unchanged,
+ * so a sync tick costs a tiny revision read instead of a blob transfer plus decode.
+ * The cache is read-only: write paths always open their own copy. Callers must
+ * finish every read synchronously before their next await, because a concurrent
+ * request may replace (and close) the cached database at any await point.
+ */
+let liveCache: LiveCache | null = null;
+
+async function liveSnapshot(env: Env): Promise<LiveCache> {
+  const cachedRevision = liveCache?.revision ?? -1;
+  const row = await env.DB.prepare("SELECT revision, CASE WHEN revision = ? THEN NULL ELSE bytes END AS bytes FROM app_state WHERE id = 1")
+    .bind(cachedRevision).first<{ revision: number; bytes: Stored["bytes"] | null }>();
+  if (liveCache && row && row.revision <= liveCache.revision) return liveCache;
+  const stored = row?.bytes ? { revision: row.revision, bytes: row.bytes } : await load(env);
+  const opened = await openSnapshot(stored.bytes);
+  // Another request may have cached an equal or newer revision while this one decoded.
+  if (liveCache && liveCache.revision >= stored.revision) {
+    opened.raw.close();
+    return liveCache;
+  }
+  liveCache?.raw.close();
+  liveCache = { ...opened, revision: stored.revision };
+  return liveCache;
+}
+
+async function synchronize(env: Env, db: Db, sid: string, path: string, body: unknown, revision: number) {
   const roomMatch = path.match(/^\/api\/rooms\/([\w-]+)\/live$/);
   if (roomMatch) {
     const roomId = roomMatch[1];
-    const { room, me } = requireMember(ctx.db, roomId, sid);
+    const { room, me } = requireMember(db, roomId, sid);
     const input = body as { clientId?: string; move?: unknown; leave?: boolean; after?: number } | null;
     if (!input || typeof input.clientId !== "string" || !/^[a-zA-Z0-9-]{8,64}$/.test(input.clientId)) throw err.invalid("連線識別碼無效");
     const now = Date.now();
+    // Read everything needed from the shared snapshot before the first await.
+    const cursor = (db.prepare("SELECT COALESCE(MAX(id), 0) AS n FROM live_bubbles").get() as { n: number }).n;
+    const after = Number.isSafeInteger(input.after) && input.after! >= 0 ? input.after! : cursor;
+    const bubbles = db.prepare("SELECT id, member_id AS memberId, text FROM live_bubbles WHERE room_id = ? AND id > ? AND created_at > ? ORDER BY id LIMIT 100")
+      .all(roomId, after, now - 30_000);
     if (input.leave) {
       await env.DB.prepare("DELETE FROM live_presence WHERE room_id = ? AND member_id = ? AND client_id = ?")
         .bind(roomId, me.id, input.clientId).run();
@@ -70,17 +104,16 @@ async function synchronize(env: Env, ctx: Ctx, sid: string, path: string, body: 
       .bind(roomId, now - PRESENCE_TTL).all<{ member_id: string; payload: string | null }>();
     const players = new Map<string, PlayerPresence>();
     for (const row of rows.results) if (row.payload && !players.has(row.member_id)) players.set(row.member_id, JSON.parse(row.payload));
-    const cursor = (ctx.db.prepare("SELECT COALESCE(MAX(id), 0) AS n FROM live_bubbles").get() as { n: number }).n;
-    const after = Number.isSafeInteger(input.after) && input.after! >= 0 ? input.after! : cursor;
-    const bubbles = ctx.db.prepare("SELECT id, member_id AS memberId, text FROM live_bubbles WHERE room_id = ? AND id > ? AND created_at > ? ORDER BY id LIMIT 100")
-      .all(roomId, after, now - 30_000);
-    // Bound ephemeral presence storage without involving order transactions.
-    await env.DB.prepare("DELETE FROM live_presence WHERE seen_at < ?").bind(now - PRESENCE_TTL).run();
+    // Bound ephemeral presence storage without involving order transactions. Reads already
+    // filter by seen_at, so sweeping on a sample of ticks saves a D1 write per poll.
+    if (Math.random() < PRESENCE_SWEEP_RATE) {
+      await env.DB.prepare("DELETE FROM live_presence WHERE seen_at < ?").bind(now - PRESENCE_TTL).run();
+    }
     return { roomId, revision: room.revision, presence: { roomId, players: [...players.values()] }, bubbles, cursor };
   }
   const storeMatch = path.match(/^\/api\/stores\/([\w-]+)\/live$/);
   if (storeMatch) {
-    requireOwner(ctx.db, sid, storeMatch[1]);
+    requireOwner(db, sid, storeMatch[1]);
     return { storeId: storeMatch[1], revision };
   }
   return null;
@@ -107,6 +140,13 @@ export default {
         if (text.length > 65536) throw err.invalid("請求內容過大");
         try { body = text ? JSON.parse(text) : {}; } catch { throw err.invalid("請求格式錯誤"); }
       }
+      if (url.pathname.endsWith("/live")) {
+        if (request.method !== "POST") return new Response(null, { status: 405, headers });
+        const snapshot = await liveSnapshot(env);
+        const result = await synchronize(env, snapshot.db, sid, url.pathname, body, snapshot.revision);
+        if (!result) throw err.invalid("找不到這個同步頻道");
+        return new Response(JSON.stringify(result), { headers });
+      }
       for (let attempt = 0; attempt < 8; attempt++) {
         const stored = await load(env);
         const { db, raw } = await openSnapshot(stored.bytes);
@@ -118,12 +158,6 @@ export default {
               db.prepare("INSERT INTO live_bubbles (room_id, member_id, text, created_at) VALUES (?, ?, ?, ?)").run(roomId, memberId, text, Date.now());
             },
           } };
-          if (url.pathname.endsWith("/live")) {
-            if (request.method !== "POST") return new Response(null, { status: 405, headers });
-            const result = await synchronize(env, ctx, sid, url.pathname, body, stored.revision);
-            if (!result) throw err.invalid("找不到這個同步頻道");
-            return new Response(JSON.stringify(result), { headers });
-          }
           const { result, contentType } = await dispatch(ctx, sid, request.method, url.pathname, body, env.DEMO_KEY ?? "demo");
           if (request.method !== "GET") {
             db.prepare("DELETE FROM live_bubbles WHERE created_at < ?").run(Date.now() - 60_000);
