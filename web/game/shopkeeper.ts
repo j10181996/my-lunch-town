@@ -17,6 +17,8 @@ export interface ShopkeeperContext {
   notInRoom?: boolean;
   /** 店家對這團訂單的處理進度（#87）；收單前沒有。 */
   orderStatus?: StoreOrderStatus | null;
+  /** 認得你時的招呼（#88，見 regulars.ts）；取代時段招呼。 */
+  regularGreeting?: string | null;
   /** 第幾次和店主說話（從 0 開始），用來輪替台詞。 */
   talk: number;
   now: number;
@@ -47,7 +49,8 @@ export function shopkeeperLine(ctx: ShopkeeperContext): string {
 
   // 店家已收到這團的單：進度排第一句，並取代「馬上準備」的複誦，免得做好了還說要準備。
   const progress = browsing ? null : shopkeeperProgressLine(ctx.orderStatus);
-  const lines = progress ? [progress, greeting(ctx.now)] : [greeting(ctx.now)];
+  const hello = ctx.regularGreeting ?? greeting(ctx.now);
+  const lines = progress ? [progress, hello] : [hello];
   if (ctx.solo) lines.push("喜歡的話，揪大家來開團吧！");
   else if (ctx.notInRoom) lines.push("這次沒揪到我們家，下次見！");
   else if (progress) { /* 進度已說明 */ }
