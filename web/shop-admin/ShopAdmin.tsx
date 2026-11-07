@@ -213,7 +213,7 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
 
           <StoreHoursSettings key={`hours-${profile.id}`} profile={profile} onSaved={setProfile} />
 
-          <section className="panel">
+          <section className="panel admin-menu">
             <div className="row" style={{ justifyContent: "space-between" }}>
               <h2>菜單</h2>
               <button className="btn green" onClick={() => setAdding(true)} disabled={adding || profile.meals.length >= 12}>

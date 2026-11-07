@@ -208,7 +208,10 @@ label.field small { font-weight: 400; color: var(--sub); }
 .town-lot button[aria-pressed="true"] { border: 3px solid var(--accent); background: #fff; color: var(--accent-ink); }
 .town-lot .lot-label { font-size: 11px; font-weight: 800; text-align: center; background: #fffd; border-radius: 4px; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.admin { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+.admin { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
+/* 營業時間是獨立的第二張卡片，菜單需跨滿下一列，不能落入左側設定欄。 */
+.admin-menu { grid-column: 1 / -1; min-width: 0; }
+.editor-row > * { min-width: 0; }
 .status-toggle { display: grid; grid-template-columns: 1fr 1fr; border: 3px solid var(--ink); border-radius: 10px; overflow: hidden; }
 .status-toggle button { border: 0; padding: 10px; font-weight: 900; cursor: pointer; background: var(--paper); }
 .status-toggle button[aria-pressed="true"].open { background: var(--green); color: #fff; }
