@@ -410,3 +410,8 @@ input, select, textarea { font-size: 16px; }
 .my-room { display: grid; gap: 6px; }
 .my-room-head { align-items: center; flex-wrap: wrap; }
 .my-room .tag.live { background: var(--green-bg); color: #2a6a35; }
+
+/* 給店家按讚（#92） */
+.like-done { color: #7a5230; font-weight: 700; }
+.store-likes .row { justify-content: space-between; }
+.like-list { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
