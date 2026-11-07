@@ -1,3 +1,4 @@
+import { lunchParty } from "./party";
 import { storeOpening } from "../../shared/store-hours";
 import { socialEnabled } from "./social-schema";
 import type {
@@ -188,6 +189,7 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
     } : null,
     myPayment: room.status === "closed" && me.role !== "owner" && mine.totalTwd > 0
       ? myPayment(db, roomId, me.id, mine.totalTwd) : null,
+    lunchParty: lunchParty(db, roomId),
     socialEnabled: socialEnabled(db, me.id),
     streetStores: streetStores(db, catalog),
     room: toRoom(room),

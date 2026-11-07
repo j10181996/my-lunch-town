@@ -71,7 +71,12 @@ export interface StreetStore {
   styleKey: string;
   lotIndex: number;
 }
+export interface LunchParty {
+  readyMemberIds: string[];
+  celebration: { id: number; members: Array<Pick<Member, "id" | "nickname" | "avatarId">> } | null;
+}
 export interface RoomSnapshot {
+  lunchParty?: LunchParty;
   socialEnabled?: boolean;
   /** 街上其他店面（不在本團），舊版伺服器可能沒有此欄位。 */
   streetStores?: StreetStore[];
