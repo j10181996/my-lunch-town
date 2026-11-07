@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { inject } from "./inject";
 import { openDb, SAMPLE_SEED } from "../db";
 import { listManagementStores } from "../stores/store-list";
 afterEach(() => vi.restoreAllMocks());
@@ -38,11 +39,11 @@ it("list links and client flags do not grant store edit access", async () => {
   const app = await buildApp({ ctx: { db, events: noopEvents } });
   try {
     const headers = { "x-admin": "true", "oai-authenticated-user-id": "pretend-admin" };
-    const response = await app.inject({ method: "GET", url: "/api/management/stores?scope=all", headers });
+    const response = await inject(app, { method: "GET", url: "/api/management/stores?scope=all", headers });
     expect(response.statusCode).toBe(200);
     expect(response.json().stores).toHaveLength(3);
     expect(response.json().stores.every((s: { canViewDetails: boolean }) => !s.canViewDetails)).toBe(true);
-    expect((await app.inject({ method: "GET", url: "/api/stores/store-af", headers })).statusCode).toBe(403);
-    expect((await app.inject({ method: "PATCH", url: "/api/stores/store-af", headers, payload: { name: "changed" } })).statusCode).toBe(403);
-  } finally { await app.close(); db.close(); }
+    expect((await inject(app, { method: "GET", url: "/api/stores/store-af", headers })).statusCode).toBe(403);
+    expect((await inject(app, { method: "PATCH", url: "/api/stores/store-af", headers, payload: { name: "changed" } })).statusCode).toBe(403);
+  } finally { db.close(); }
 });

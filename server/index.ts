@@ -2,6 +2,8 @@ import { fileImageStorage } from "./images/files";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
+import { serve } from "@hono/node-server";
+import type { Server } from "node:http";
 import { buildApp } from "./app";
 import type { Ctx, RoomEvents } from "./context";
 import { TAICHUNG_SEED, openDb } from "./db";
@@ -31,13 +33,15 @@ const ctx: Ctx = {
   },
 };
 
-const app = await buildApp({
+const app = buildApp({
   ctx,
   staticDir: process.env.NODE_ENV === "production" ? join(here, "../dist") : undefined,
   secureCookie: process.env.COOKIE_SECURE === "1",
   demoKey: DEMO_KEY,
 });
-events = attachRealtime(app.server, db);
+// Socket.IO 掛在同一個 http server 上，自行處理 /socket.io/ 的請求，其餘交給 Hono。
+const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }) as Server;
+events = attachRealtime(server, db);
 
 // Node 為常駐行程：定期收掉已過截止的團。Sites 改由寫入請求與團員頁面觸發（見 rooms/deadline.ts）。
 setInterval(() => {
@@ -48,7 +52,6 @@ setInterval(() => {
   }
 }, 5_000).unref();
 
-await app.listen({ port: PORT, host: HOST });
 console.log(`午餐小鎮伺服器：http://localhost:${PORT}`);
 console.log("種子店家管理碼：demo-{storeId}，例如 demo-store-chingfan");
 console.log(DEMO_KEY ? `展示用後台碼：${DEMO_KEY}（一次取得所有種子店家；設 DEMO_KEY= 可停用）` : "展示用後台碼：已停用");

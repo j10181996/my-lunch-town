@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
+import { inject } from "./inject";
 import { readFileSync } from "node:fs";
 import { DELIVERY_ADDRESS_MAX, type RoomSnapshot } from "../../shared/contracts";
-import type { FastifyInstance } from "fastify";
+import type { Hono } from "hono";
 import { buildApp } from "../app";
 import { distanceKm } from "../../shared/delivery";
 import { haversineKm } from "../../shared/geo";
@@ -12,7 +13,7 @@ import { SAMPLE_SEED, TAICHUNG_SEED, openDb } from "../db";
 import { noopEvents, type Ctx } from "../context";
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
-let app: FastifyInstance;
+let app: Hono;
 let changes: Array<{ roomId: string; revision: number }>;
 let storeChanges: string[];
 let n = 0;
@@ -37,7 +38,7 @@ beforeEach(async () => {
 function client() {
   let cookie = "";
   const call = async (method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", url: string, body?: unknown) => {
-    const res = await app.inject({ method, url, payload: body as never, headers: cookie ? { cookie } : {} });
+    const res = await inject(app, { method, url, payload: body as never, headers: cookie ? { cookie } : {} });
     const set = res.headers["set-cookie"];
     if (set) cookie = String(Array.isArray(set) ? set[0] : set).split(";")[0];
     const isJson = String(res.headers["content-type"] ?? "").includes("json");
@@ -420,7 +421,7 @@ describe("台中店家種子資料", () => {
       events: { roomChanged() {}, bubble() {}, storeOrdersChanged() {} },
     };
     const local = await buildApp({ ctx });
-    const res = await local.inject({
+    const res = await inject(local, {
       method: "POST",
       url: "/api/rooms",
       payload: { title: "午餐", nickname: "阿凱", requestId: "req-taichung-seed-1", storeIds: TAICHUNG_STORE_IDS },
@@ -866,8 +867,8 @@ describe("展示用後台碼", () => {
     const ctx: Ctx = { db: openDb(":memory:", SAMPLE_SEED), events: noopEvents };
     return buildApp({ ctx, demoKey });
   }
-  async function call(local: FastifyInstance, cookie: string, method: "GET" | "POST", url: string, payload?: unknown) {
-    const res = await local.inject({ method, url, payload: payload as never, headers: cookie ? { cookie } : {} });
+  async function call(local: Hono, cookie: string, method: "GET" | "POST", url: string, payload?: unknown) {
+    const res = await inject(local, { method, url, payload: payload as never, headers: cookie ? { cookie } : {} });
     const set = res.headers["set-cookie"];
     const next = set ? String(Array.isArray(set) ? set[0] : set).split(";")[0] : cookie;
     return { status: res.statusCode, body: res.json(), cookie: next };

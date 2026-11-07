@@ -1,19 +1,10 @@
-import { registerRoutes } from "./routes";
-import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import cookie from "@fastify/cookie";
-import fastifyStatic from "@fastify/static";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { Hono } from "hono";
 import { existsSync } from "node:fs";
+import { api, errorResponse, readApiRequest, withSessionCookie } from "./api";
 import type { Ctx } from "./context";
 import { AppError } from "./db";
-import { randomId } from "./util";
-export const SESSION_COOKIE = "lt_sid";
-const SID_RE = /^[a-z0-9]{24}$/;
-
-declare module "fastify" {
-  interface FastifyRequest {
-    sid: string;
-  }
-}
+export { SESSION_COOKIE } from "./api";
 
 export interface AppOptions {
   ctx: Ctx;
@@ -23,53 +14,25 @@ export interface AppOptions {
   demoKey?: string;
 }
 
-export async function buildApp({ ctx, staticDir, secureCookie = false, demoKey }: AppOptions) {
-  const app = Fastify({ logger: false });
-  const { db } = ctx;
-  await app.register(cookie);
+/** Node 執行環境：同一個行程供應 API 與（正式環境的）前端靜態檔。 */
+export function buildApp({ ctx, staticDir, secureCookie = false, demoKey }: AppOptions) {
+  const app = new Hono();
 
-  app.decorateRequest("sid", "");
-  app.addHook("onRequest", async (req, reply) => {
-    if (!req.url.startsWith("/api/") || req.url.startsWith("/api/meal-images/")) return;
-    let sid = req.cookies[SESSION_COOKIE];
-    if (!sid || !SID_RE.test(sid)) {
-      sid = randomId(24);
-      reply.setCookie(SESSION_COOKIE, sid, {
-        path: "/",
-        httpOnly: true,
-        sameSite: "lax",
-        secure: secureCookie,
-        maxAge: 60 * 60 * 24 * 30,
-      });
+  app.all("/api/*", async (c) => {
+    try {
+      const { sid, body, setCookie } = await readApiRequest(c.req.raw, { secureCookie });
+      return withSessionCookie(await api.fetch(c.req.raw, { ctx, sid, body, demoKey }), setCookie);
+    } catch (error) {
+      return errorResponse(error);
     }
-    db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").run(sid, Date.now());
-    req.sid = sid;
   });
 
-  app.setErrorHandler((error: unknown, _req: FastifyRequest, reply: FastifyReply) => {
-    if (error instanceof AppError) {
-      return reply.status(error.status).send({ code: error.code, message: error.message });
-    }
-    const e = error as { statusCode?: number; message?: string };
-    if (e.statusCode && e.statusCode < 500) {
-      return reply.status(400).send({ code: "INVALID_INPUT", message: "請求格式錯誤" });
-    }
-    console.error(error);
-    return reply.status(500).send({ code: "RETRY_LATER", message: "伺服器發生錯誤" });
-  });
-
-  registerRoutes(app, ctx, demoKey);
-
-  // —— 正式環境：同一網址供應前端 ——
+  // —— 正式環境：同一網址供應前端；找不到的頁面路徑回 index.html，交給前端路由 ——
   if (staticDir && existsSync(staticDir)) {
-    await app.register(fastifyStatic, { root: staticDir, wildcard: false });
-    app.setNotFoundHandler((req, reply) => {
-      if (req.method === "GET" && !req.url.startsWith("/api/") && !req.url.startsWith("/socket.io")) {
-        return reply.sendFile("index.html");
-      }
-      return reply.status(404).send({ code: "INVALID_INPUT", message: "找不到" });
-    });
+    app.use("*", serveStatic({ root: staticDir }));
+    app.get("*", serveStatic({ root: staticDir, path: "index.html" }));
   }
+  app.notFound(() => errorResponse(new AppError("INVALID_INPUT", 404, "找不到")));
 
   return app;
 }
