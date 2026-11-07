@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { MoveInput, RoomSnapshot, SceneId } from "../../shared/contracts";
 import { describeDelivery, fulfillmentOf } from "../../shared/delivery";
 import { AVATARS } from "../../shared/town";
 import { roomGateway } from "../adapters/http";
 import { errorText, newRequestId } from "../api";
-import { avatarDataUrl } from "../art/characters";
 import type { Game } from "../game/game";
 import { GameView } from "../game/GameView";
 import { deliveryForStore, GroupTotals, MenuPanel, MyOrder, PeopleDetail, RoomOrderStatus } from "../ordering/panels";
 import { PaymentCard, PaymentSettings } from "../ordering/payments";
 import { useRoom } from "../state/useRoom";
-import { CopyButton, Modal, TopBar, copyText, money } from "../ui";
+import { AvatarPicker, CopyButton, Modal, TopBar, copyText, money } from "../ui";
 import { NotFound } from "./NotFound";
 
 export function RoomPage({ roomId }: { roomId: string }) {
@@ -45,7 +44,6 @@ function JoinGate({ title, memberCount, onJoin }: { title: string; memberCount: 
   const [avatar, setAvatar] = useState(AVATARS[1].id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const avatars = useMemo(() => AVATARS.map((a) => ({ ...a, src: avatarDataUrl(a.id) })), []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -76,16 +74,7 @@ function JoinGate({ title, memberCount, onJoin }: { title: string; memberCount: 
             暱稱 <small>1 至 12 個字</small>
             <input type="text" value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} required autoFocus />
           </label>
-          <div className="field">
-            選一個角色
-            <div className="avatar-pick" role="group" aria-label="角色">
-              {avatars.map((a) => (
-                <button type="button" key={a.id} aria-pressed={avatar === a.id} onClick={() => setAvatar(a.id)} aria-label={`${a.label}色角色`}>
-                  <img className="pixel" src={a.src} alt="" />
-                </button>
-              ))}
-            </div>
-          </div>
+          <AvatarPicker value={avatar} onChange={setAvatar} />
           {error && <div className="banner error">{error}</div>}
           <button className="btn primary big" disabled={busy || !nickname.trim()}>
             {busy ? "加入中…" : "加入午餐小鎮"}

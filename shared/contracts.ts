@@ -91,6 +91,7 @@ export interface CreateRoomInput {
   title: string;
   nickname: string;
   requestId: string; // 同一工作階段的開團重試使用相同 ID
+  avatarId?: string; // 團長角色；省略或無效時用預設角色
 }
 export interface JoinInput { nickname: string; avatarId: string }
 export interface OrderDeltaInput {

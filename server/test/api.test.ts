@@ -87,6 +87,15 @@ describe("開團與加入", () => {
     expect(b.body.snapshot.room.id).toBe(a.body.snapshot.room.id);
   });
 
+  it("團長開團時可選角色；未選或無效時用預設角色", async () => {
+    const pick = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", avatarId: "avatar-green", requestId: rid() });
+    expect(pick.body.snapshot.members[0].avatarId).toBe("avatar-green");
+    const bad = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", avatarId: "nope", requestId: rid() });
+    expect(bad.body.snapshot.members[0].avatarId).toBe("avatar-blue");
+    const { created } = await openRoom();
+    expect(created.snapshot.members[0].avatarId).toBe("avatar-blue");
+  });
+
   it("重名以後綴區分；無效房間 404", async () => {
     const { roomId } = await openRoom();
     const dup = await client().post(`/api/rooms/${roomId}/join`, { nickname: "阿凱", avatarId: "avatar-pink" });
