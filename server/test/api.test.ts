@@ -371,6 +371,10 @@ describe("開團指定店家", () => {
     expect(snap.catalog.stores.map((s: { id: string }) => s.id)).toEqual(["store-tree"]);
     // 沒選的店仍畫在街上（不在本團），不是空地。
     expect(snap.streetStores.map((s: { id: string }) => s.id)).toEqual(["store-af", "store-green"]);
+    // 不在本團的店可以進店看菜單（#78），但仍不能點。
+    const af = snap.streetStores.find((s: { id: string }) => s.id === "store-af");
+    expect(af.meals.map((m: { id: string }) => m.id)).toContain("meal-af-chicken");
+    expect(af.meals.every((m: { storeId: string; available: boolean }) => m.storeId === "store-af" && m.available)).toBe(true);
     expect(snap.catalog.meals.length).toBeGreaterThan(0);
     expect(snap.catalog.meals.every((m: { storeId: string }) => m.storeId === "store-tree")).toBe(true);
     expect((await plus(owner, snap.room.id, "meal-af-chicken")).status).toBe(404);

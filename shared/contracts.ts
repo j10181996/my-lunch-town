@@ -64,12 +64,14 @@ export interface StoreTotal {
   totalQuantity: number;
   totalTwd: number;
 }
-/** 小鎮上不在本團的店面：只用來畫街景，不能進店點餐。 */
+/** 小鎮上不在本團的店面：可以進店看菜單，但不能點餐（#78）。 */
 export interface StreetStore {
   id: Id;
   name: string;
   styleKey: string;
   lotIndex: number;
+  /** 目前供應中的餐點，只供瀏覽；舊版伺服器可能沒有此欄位。 */
+  meals?: Meal[];
 }
 export interface LunchParty {
   readyMemberIds: string[];
