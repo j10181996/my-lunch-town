@@ -1,3 +1,4 @@
+import { MEAL_IMAGES_SCHEMA } from "./images/schema";
 import { migrateTaichungExpansion } from "./catalog/taichung-expansion";
 import { PARTY_SCHEMA } from "./rooms/party-schema";
 import { migrateStoreHours } from "./store-hours-schema";
@@ -133,6 +134,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
   db.exec(SOCIAL_SCHEMA);
+  db.exec(MEAL_IMAGES_SCHEMA);
   db.exec(PARTY_SCHEMA);
   migrateDelivery(db, seedFile);
   migratePayment(db);

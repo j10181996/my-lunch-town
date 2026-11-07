@@ -208,7 +208,10 @@ label.field small { font-weight: 400; color: var(--sub); }
 .town-lot button[aria-pressed="true"] { border: 3px solid var(--accent); background: #fff; color: var(--accent-ink); }
 .town-lot .lot-label { font-size: 11px; font-weight: 800; text-align: center; background: #fffd; border-radius: 4px; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.admin { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+.admin { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
+/* 營業時間是獨立的第二張卡片，菜單需跨滿下一列，不能落入左側設定欄。 */
+.admin-menu { grid-column: 1 / -1; min-width: 0; }
+.editor-row > * { min-width: 0; }
 .status-toggle { display: grid; grid-template-columns: 1fr 1fr; border: 3px solid var(--ink); border-radius: 10px; overflow: hidden; }
 .status-toggle button { border: 0; padding: 10px; font-weight: 900; cursor: pointer; background: var(--paper); }
 .status-toggle button[aria-pressed="true"].open { background: var(--green); color: #fff; }
@@ -348,6 +351,21 @@ label.field small { font-weight: 400; color: var(--sub); }
 }
 .diet-picker .chip { min-height: 30px; padding: 0 8px; font-size: 13px; border-width: 1px; }
 
+.photo-uploader { border-bottom: 2px dashed var(--line); padding-bottom: 16px; }
+.photo-uploader h4, .photo-uploader p { margin: 0; }
+.photo-uploader .field { min-width: 0; }
+.photo-uploader input[type=file] { width: 100%; max-width: 100%; min-width: 0; }
+.photo-dishes { border: 0; margin: 0; padding: 0; min-width: 0; }
+.photo-dishes legend { font-weight: 700; margin-bottom: 8px; }
+.photo-dishes > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo-dishes .btn { min-height: 44px; flex: 1; }
+.photo-dishes [aria-pressed=true] { background: var(--green-bg); border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+.photo-comparison { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.photo-comparison figure { margin: 0; padding: 12px 4px; display: grid; justify-items: center; gap: 8px; background: #fff; border: 2px solid var(--line); border-radius: 12px; min-width: 0; }
+.photo-comparison figure.photo-result { border-color: var(--green); background: #f3f7ed; }
+.photo-comparison img { width: min(96px, 100%); height: auto; aspect-ratio: 1; object-fit: contain; }
+.photo-comparison figcaption { font-size: 13px; font-weight: 700; text-align: center; }
+.photo-note { font-size: 13px; line-height: 1.6; }
 /* Pixel type is reserved for game identity; ordering information stays in Noto. */
 h1, h2, h3, .logo, .btn { font-family: var(--font-pixel); font-weight: 400; }
 .stage-action, .btn.plus, .btn.minus { font-family: var(--font); font-weight: 700; }

@@ -396,6 +396,9 @@ export interface ManagementStore {
 }
 export interface ManagementStoreList { scope: "all"; stores: ManagementStore[] }
 
+export interface StoreAdminGateway {
+  uploadImage(storeId: Id, pixels: number[]): Promise<{ imageAssetKey: string }>;
+}
 /** 散步模式（#44）：即時菜單中目前不收單的店，街景畫成休息中。 */
 export interface Store { resting?: boolean }
 

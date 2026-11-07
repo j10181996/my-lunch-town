@@ -1,3 +1,4 @@
+import { resolveMealImage } from "../images/images";
 import { storeOpening, validateStoreHours } from "../../shared/store-hours";
 import type {
   AdminMeal,
@@ -10,7 +11,7 @@ import type {
   UpdateStoreInput,
 } from "../../shared/contracts";
 import { validateDeliveryRules } from "../../shared/delivery";
-import { DEFAULT_MEAL_ART, LOTS, MEAL_ART_KEYS, STYLE_KEYS } from "../../shared/town";
+import { DEFAULT_MEAL_ART, LOTS, STYLE_KEYS } from "../../shared/town";
 import { AppError, err, withWriteTx, type Db } from "../db";
 import { hashKey, intInRange, oneOf, randomId, requestId as checkRequestId, text } from "../util";
 
@@ -204,12 +205,7 @@ const MAX_MEAL_TAGS = 8;
 function parseMeal(input: Partial<MealInput>, base?: MealInput): MealInput {
   const name = input.name !== undefined ? text(input.name, "餐點名稱", 1, 16) : base?.name;
   const priceTwd = input.priceTwd !== undefined ? intInRange(input.priceTwd, "價格", 0, 9999) : base?.priceTwd;
-  const imageAssetKey =
-    input.imageAssetKey !== undefined
-      ? MEAL_ART_KEYS.includes(input.imageAssetKey)
-        ? input.imageAssetKey
-        : DEFAULT_MEAL_ART
-      : (base?.imageAssetKey ?? DEFAULT_MEAL_ART);
+  const imageAssetKey = input.imageAssetKey ?? base?.imageAssetKey ?? DEFAULT_MEAL_ART;
   const available = input.available !== undefined ? input.available === true : (base?.available ?? true);
   let tags = base?.tags ?? [];
   if (input.tags !== undefined) {
@@ -226,6 +222,7 @@ export function addMeal(db: Db, sessionId: string, storeId: string, input: MealI
   const meal = parseMeal(input ?? {});
   return withWriteTx(db, () => {
     requireOwner(db, sessionId, storeId);
+    meal.imageAssetKey = resolveMealImage(db, storeId, meal.imageAssetKey);
     const n = (db.prepare("SELECT COUNT(*) AS n FROM meals WHERE store_id = ?").get(storeId) as { n: number }).n;
     if (n >= 12) throw err.invalid("每家店最多 12 道餐點");
     const max = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM meals WHERE store_id = ?").get(storeId) as { m: number };
@@ -256,6 +253,7 @@ export function updateMeal(db: Db, sessionId: string, storeId: string, mealId: s
       available: cur.available === 1,
       tags: JSON.parse(cur.tags_json) as string[],
     });
+    next.imageAssetKey = resolveMealImage(db, storeId, next.imageAssetKey);
     db.prepare("UPDATE meals SET name = ?, price_twd = ?, image_key = ?, available = ?, tags_json = ? WHERE id = ?").run(
       next.name,
       next.priceTwd,

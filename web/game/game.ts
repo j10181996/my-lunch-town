@@ -1,3 +1,4 @@
+import { mealImagesVersion } from "../art/meals";
 import { layoutMapLabels, type MapLabel } from "./text-layout";
 import { animalFrame } from "../art/animals";
 import { createTownFriends, friendPose, type TownFriend, type FriendPose } from "./town-life";
@@ -76,6 +77,7 @@ export class Game {
   private art: SceneArt | null = null;
   private streetArt: SceneArt | null = null;
   private shopArt = new Map<string, SceneArt>();
+  private mealImageVersion = 0;
 
   private me: Actor = { x: STREET_SPAWN.x, y: STREET_SPAWN.y, dir: "down", moving: false, animT: 0 };
   private meId = "";
@@ -538,6 +540,11 @@ export class Game {
   }
 
   private render() {
+    if (this.mealImageVersion !== mealImagesVersion()) {
+      this.mealImageVersion = mealImagesVersion();
+      this.shopArt.clear();
+      this.applySceneArt();
+    }
     const b = this.bctx;
     const cam = this.camera();
     const v = this.view;

@@ -60,6 +60,8 @@ npm run build
 
 既有測試位於 `server/test/`，涵蓋團單、計價、去重、收單、店家訂單、外送規則與人工收款狀態。
 
+店家照片上傳、32×32 點陣轉換、Node／R2 圖片保存與測試方式見 [自訂餐點圖片](docs/custom-meal-images.md)。Sites 部署須提供 R2 `BUCKET` binding。
+
 `scripts/smoke.mjs` 是既有多瀏覽器流程測試，需要本機 Google Chrome。先以新的隔離資料目錄和 `shared/catalog/seed.json` 啟動建置版本，再執行：
 
 ```sh

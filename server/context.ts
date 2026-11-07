@@ -1,3 +1,4 @@
+import type { ImageStorage } from "./images/images";
 import type { Db } from "./db";
 
 export interface RoomEvents {
@@ -9,6 +10,7 @@ export interface RoomEvents {
 export interface Ctx {
   db: Db;
   events: RoomEvents;
+  images?: ImageStorage;
 }
 
 export const noopEvents: RoomEvents = {
