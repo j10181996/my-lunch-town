@@ -85,7 +85,8 @@ label.field small { font-weight: 400; color: var(--sub); }
 .side-footer { position: sticky; bottom: calc(-1 * var(--side-pad)); margin: auto calc(-1 * var(--side-pad)) calc(-1 * var(--side-pad)); padding: 10px var(--side-pad) var(--side-pad); background: var(--paper); border-top: 3px solid var(--line); z-index: 2; }
 /* 店內菜單：頂部固定店名、外送、篩選與預算，底部固定訂單列；只捲動菜單。 */
 .menu-head { position: sticky; top: calc(-1 * var(--side-pad)); z-index: 2; margin: 0 calc(-1 * var(--side-pad)); padding: 10px var(--side-pad); background: var(--paper); border-bottom: 3px solid var(--line); display: grid; gap: 8px; }
-.menu-head h2 { margin: 0; font-size: 20px; line-height: 1.2; }
+.menu-head .shop-head h2 { margin: 0; font-size: 20px; line-height: 1.2; }
+.menu-head .delivery-status { margin: 2px 0 0; }
 .menu-head .diet-filter { max-height: 35vh; overflow-y: auto; }
 .menu-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .budget-chip { font-size: 13px; font-weight: 800; padding: 2px 10px; border-radius: 99px; background: var(--green-bg); color: #2a6a35; }
@@ -98,6 +99,24 @@ label.field small { font-weight: 400; color: var(--sub); }
 .order-bar:focus-visible { outline: 3px solid #f2b631; outline-offset: 2px; }
 /* 捲動或聚焦時不要被頂部／底部固定區塊遮住。 */
 .menu-panel .meal-row, .scroll-target { scroll-margin-top: 140px; scroll-margin-bottom: 90px; }
+/* 手機：面板只剩約 300px，頭尾各壓成一行，把空間留給菜單。 */
+@media (max-width: 900px) {
+  .menu-head { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding-top: 6px; padding-bottom: 6px; }
+  .menu-head .shop-head img { display: none; }
+  .menu-head .shop-head h2 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu-head .delivery-status small { font-size: 12px; }
+  .menu-head .delivery-progress { display: none; }
+  .menu-head .diet-filter { grid-column: 1 / -1; max-height: 30vh; }
+  .menu-tools { justify-content: flex-end; flex-wrap: nowrap; }
+  .menu-tools .budget-chip { white-space: nowrap; }
+  .store-footer { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; padding-top: 8px; padding-bottom: 8px; }
+  .store-footer .btn.big { font-size: 14px; padding: 6px 10px; white-space: normal; max-width: 9em; }
+  .order-bar { flex-wrap: nowrap; padding: 6px 10px; font-size: 13px; gap: 6px; }
+  .order-bar strong { font-size: 15px; }
+  .order-bar > span:first-child { white-space: nowrap; }
+  .order-bar-go { display: none; }
+  .menu-panel .meal-row, .scroll-target { scroll-margin-top: 70px; scroll-margin-bottom: 70px; }
+}
 
 .banner { border-radius: var(--radius); padding: 8px 12px; font-weight: 700; display: flex; gap: 8px; align-items: center; }
 .banner.ok { background: var(--green-bg); color: #2a6a35; }
@@ -314,21 +333,3 @@ label.field small { font-weight: 400; color: var(--sub); }
 }
 .diet-picker .chip { min-height: 30px; padding: 0 8px; font-size: 13px; border-width: 1px; }
 
-/* 手機：面板只剩約 300px，頭尾各壓成一行，把空間留給菜單。 */
-@media (max-width: 900px) {
-  .menu-head { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding-top: 6px; padding-bottom: 6px; }
-  .menu-head .shop-head img { display: none; }
-  .menu-head h2 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .menu-head .delivery-status small { font-size: 12px; }
-  .menu-head .delivery-progress { display: none; }
-  .menu-head .diet-filter { grid-column: 1 / -1; max-height: 30vh; }
-  .menu-tools { justify-content: flex-end; flex-wrap: nowrap; }
-  .menu-tools .budget-chip { white-space: nowrap; }
-  .store-footer { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; padding-top: 8px; padding-bottom: 8px; }
-  .store-footer .btn.big { font-size: 14px; padding: 6px 10px; white-space: normal; max-width: 9em; }
-  .order-bar { flex-wrap: nowrap; padding: 6px 10px; font-size: 13px; gap: 6px; }
-  .order-bar strong { font-size: 15px; }
-  .order-bar > span:first-child { white-space: nowrap; }
-  .order-bar-go { display: none; }
-  .menu-panel .meal-row, .scroll-target { scroll-margin-top: 70px; scroll-margin-bottom: 70px; }
-}
