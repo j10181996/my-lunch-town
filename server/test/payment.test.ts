@@ -95,7 +95,7 @@ it("舊 rooms 增欄與付款表遷移可重試、保留原資料及新設定", 
     const db = openDb(path);
     try {
       expect(db.prepare("SELECT * FROM rooms").get())
-        .toEqual({ ...before, payment_json: null, payment_sent_at: null });
+        .toEqual({ ...before, payment_json: null, payment_sent_at: null, delivery_address: null });
       expect(db.prepare("PRAGMA table_info(member_payments)").all().map((r) => r.name))
         .toEqual(["room_id", "member_id", "status", "reported_at", "confirmed_at"]);
       expect(db.prepare("PRAGMA table_info(payment_reminders)").all().map((r) => r.name))
@@ -109,6 +109,7 @@ it("舊 rooms 增欄與付款表遷移可重試、保留原資料及新設定", 
         ...before,
         payment_json: JSON.stringify({ methods: [bank], note: "" }),
         payment_sent_at: 123,
+        delivery_address: null,
       });
     } finally { reopened.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }

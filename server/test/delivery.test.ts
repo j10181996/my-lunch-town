@@ -13,6 +13,7 @@ import {
 } from "../../shared/delivery";
 import { STREET_H, STREET_W } from "../../shared/town";
 import { openDb, TAICHUNG_SEED } from "../db";
+import { migrateDeliveryAddress } from "../delivery-address-schema";
 
 const rules: DeliveryRules = {
   enabled: true,
@@ -81,6 +82,18 @@ describe("外送純函式", () => {
   });
 });
 
+it("送餐地址遷移可重複執行，保留既有資料", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec("CREATE TABLE rooms (id TEXT PRIMARY KEY); CREATE TABLE store_orders (id TEXT PRIMARY KEY); INSERT INTO rooms VALUES ('r-old')");
+    migrateDeliveryAddress(db);
+    db.prepare("UPDATE rooms SET delivery_address = ?").run("A 棟");
+    migrateDeliveryAddress(db);
+    expect(db.prepare("SELECT * FROM rooms").get()).toEqual({ id: "r-old", delivery_address: "A 棟" });
+    expect(db.prepare("PRAGMA table_info(store_orders)").all().map((c) => c.name)).toContain("delivery_address");
+  } finally { db.close(); }
+});
+
 it("舊 schema 增欄與種子回填只做一次，保留舊資料與既有訂單", () => {
   const dir = mkdtempSync(join(tmpdir(), "lt-delivery-"));
   const path = join(dir, "old.sqlite");
@@ -141,11 +154,11 @@ it("舊 schema 增欄與種子回填只做一次，保留舊資料與既有訂�
       expect(store).toMatchObject(before.store);
       expect(JSON.parse(store.delivery_json as string)).toEqual(seeded.delivery);
       expect(db.prepare("SELECT * FROM rooms").get())
-        .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null });
+        .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null, delivery_address: null });
       expect(db.prepare("SELECT * FROM room_stores").get())
         .toEqual({ ...before.frozen, delivery_json: null, order_deadline_at: null });
       expect(db.prepare("SELECT * FROM store_orders").get())
-        .toEqual({ ...before.order, fulfillment: "pickup", distance_km: null, delivery_min_twd: null });
+        .toEqual({ ...before.order, fulfillment: "pickup", distance_km: null, delivery_min_twd: null, delivery_address: null });
       expect(db.prepare("SELECT COUNT(*) AS n FROM stores").get()).toMatchObject({ n: 1 });
       db.exec("UPDATE stores SET delivery_json = NULL");
     } finally { db.close(); }

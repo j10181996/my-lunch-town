@@ -120,7 +120,7 @@ NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；�
 
 業務表的 schema 在 `server/db.ts` 的 `SCHEMA` 字串與 `migrate*` 函式，不在 Drizzle。Drizzle 的 `db/schema.ts` 只管 D1 外層的 `app_state` 與 `live_presence`。
 
-Node 的 `openDb` 每次啟動都會跑 `migrateDelivery`、`migratePayment`，但 Worker 的 `openSnapshot` 不會；它只套用 `SOCIAL_SCHEMA` 與 `migrateStoreHours`。已部署的 D1 image 是舊版建立的，不會自動得到新欄位；`worker/seed.bin` 只在 D1 尚未初始化時使用。所以：
+Node 的 `openDb` 每次啟動都會跑 `migrateDelivery`、`migratePayment`，但 Worker 的 `openSnapshot` 不會；它只套用 `SOCIAL_SCHEMA`、`PARTY_SCHEMA`、`migrateStoreHours` 與 `migrateDeliveryAddress`。已部署的 D1 image 是舊版建立的，不會自動得到新欄位；`worker/seed.bin` 只在 D1 尚未初始化時使用。所以：
 
 - 新表或新欄位要寫成可重複執行的遷移（`CREATE TABLE IF NOT EXISTS`、先查 `PRAGMA table_info` 再 `ALTER TABLE`），並確保 `worker/db.ts` 的 `openSnapshot` 也會套用。做法是把遷移獨立成一個檔案，由 `openDb` 與 `openSnapshot` 都呼叫。新表可參考 `server/rooms/social-schema.ts`（一份 `CREATE TABLE IF NOT EXISTS` 常數）；新欄位可參考 `server/store-hours-schema.ts` 的 `migrateStoreHours`（先查 `PRAGMA table_info`，缺欄才在交易內 `ALTER TABLE`）。Worker 下一筆成功寫入時，升級後的 image 會隨交易一起寫回 D1。
 - 遷移不得覆蓋或回填既有資料，除非有明確需求。
