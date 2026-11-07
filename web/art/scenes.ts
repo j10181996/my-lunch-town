@@ -14,6 +14,7 @@ export interface Rect {
   h: number;
 }
 export interface SignText {
+  kind?: "store" | "road" | "vacant";
   x: number;
   y: number;
   w: number;
@@ -415,10 +416,10 @@ export function buildStreet(stores: StreetFront[], restingIds: Set<string> = new
       signs.push({ x: lot.bx + 25, y: lot.by + 27, w: 58, text: other.name, size: 7, color: "#7d6a5c" });
       // 告示板掛在雨棚上，讓「不在本團」不會和雨棚花色混在一起。
       box(c, lot.bx + 30, lot.by + 32, 48, 10, "#f4e6c4", "#6b4a2c");
-      signs.push({ x: lot.bx + 32, y: lot.by + 37, w: 44, text: "不在本團", size: 6, color: "#7a3f22" });
+      signs.push({ x: lot.bx + 32, y: lot.by + 37, w: 44, kind: "vacant", text: "不在本團", size: 6, color: "#7a3f22" });
     } else {
       emptyLot(c, lot.bx, lot.by);
-      signs.push({ x: lot.bx + 28, y: lot.by + 33, w: 40, text: "招租中", size: 7, color: "#785334" });
+      signs.push({ x: lot.bx + 28, y: lot.by + 33, w: 40, kind: "vacant", text: "招租中", size: 7, color: "#785334" });
     }
     for (const [dx, dy] of [[-3, 68], [2, 74]]) {
       poly(c, [[lot.bx + 44 + dx, lot.by + dy], [lot.bx + 51 + dx, lot.by + dy - 1],
@@ -443,7 +444,7 @@ export function buildStreet(stores: StreetFront[], restingIds: Set<string> = new
     const w = Math.max(30, text.length * 6 + 8);
     timber(c, x - w / 2, y - 20, w, 12, "#a47c47");
     rect(c, x - w / 2 + 2, y - 18, w - 4, 8, "#e7d2a0");
-    signs.push({ x: x - w / 2 + 3, y: y - 14, w: w - 6, text, size: 5.5, color: "#593b2c" });
+    signs.push({ x: x - w / 2 + 3, y: y - 14, w: w - 6, kind: "road", text, size: 5.5, color: "#593b2c" });
   }
   for (const [x, y, w] of [[744, 352, 40], [816, 384, 48], [592, 48, 40], [112, 284, 48]])
     flowers(c, x, y, w);
