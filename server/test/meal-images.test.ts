@@ -80,12 +80,12 @@ it("換圖不改既有團、舊圖片仍可讀取，新團取得新圖", async (
   try {
     const first = await uploadMealImage(ctx, "shop", "store-af", { pixels: pixels() });
     updateMeal(db, "shop", "store-af", "meal-af-chicken", { imageAssetKey: first.imageAssetKey });
-    const old = createRoom(ctx, "owner", { title: "舊團", nickname: "團主", requestId: "old-room-image" });
+    const old = createRoom(ctx, "owner", { title: "舊團", nickname: "團主", storeIds: ["store-af"], requestId: "old-room-image" });
     const changed = pixels(); changed[0] = 255;
     const second = await uploadMealImage(ctx, "shop", "store-af", { pixels: changed });
     expect(first.imageAssetKey).not.toBe(second.imageAssetKey);
     updateMeal(db, "shop", "store-af", "meal-af-chicken", { imageAssetKey: second.imageAssetKey });
-    const current = createRoom(ctx, "owner", { title: "新團", nickname: "團主", requestId: "new-room-image" });
+    const current = createRoom(ctx, "owner", { title: "新團", nickname: "團主", storeIds: ["store-af"], requestId: "new-room-image" });
     expect(buildSnapshot(db, old.snapshot.room.id, "owner").catalog.meals.find((m) => m.id === "meal-af-chicken")?.imageAssetKey).toBe(first.imageAssetKey);
     expect(current.snapshot.catalog.meals.find((m) => m.id === "meal-af-chicken")?.imageAssetKey).toBe(second.imageAssetKey);
     expect((await readMealImage(ctx, first.imageAssetKey)).length).toBeGreaterThan(0);

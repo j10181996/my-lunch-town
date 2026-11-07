@@ -5,6 +5,7 @@ import { buildSnapshot, createRoom, joinRoom } from "../rooms/rooms";
 import { changeQuantity, closeRoom } from "../orders/orders";
 import { setLunchReady } from "../rooms/party";
 import { PARTY_SCHEMA } from "../rooms/party-schema";
+import { SAMPLE_STORE_IDS } from "./fixtures";
 
 let ctx: Ctx;
 let roomId: string;
@@ -15,7 +16,7 @@ const snap = (sid = "owner") => buildSnapshot(ctx.db, roomId, sid);
 beforeEach(() => {
   changes = [];
   ctx = { db: openDb(":memory:", SAMPLE_SEED), events: { ...noopEvents, roomChanged: (_, r) => changes.push(r) } };
-  const made = createRoom(ctx, "owner", { title: "午休集合", nickname: "團長", requestId: crypto.randomUUID() });
+  const made = createRoom(ctx, "owner", { title: "午休集合", nickname: "團長", requestId: crypto.randomUUID(), storeIds: SAMPLE_STORE_IDS });
   roomId = made.snapshot.room.id; mealId = made.snapshot.catalog.meals[0].id;
   joinRoom(ctx, "guest", roomId, { nickname: "夥伴", avatarId: "avatar-pink" });
 });

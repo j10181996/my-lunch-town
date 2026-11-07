@@ -5,6 +5,7 @@ import { setSocial, sendEmote } from "../rooms/social";
 import { changeQuantity } from "../orders/orders";
 import type { Ctx } from "../context";
 import { createTownFriends, friendPose, lifeWalkable } from "../../web/game/town-life";
+import { SAMPLE_STORE_IDS } from "./fixtures";
 
 afterEach(() => vi.restoreAllMocks());
 function fixture() {
@@ -12,7 +13,7 @@ function fixture() {
   db.prepare("INSERT INTO sessions VALUES (?, ?)").run("owner-session", Date.now());
   const bubble = vi.fn();
   const ctx: Ctx = { db, events: { bubble, roomChanged() {}, storeOrdersChanged() {} } };
-  const snap = createRoom(ctx, "owner-session", { title: "社交測試", nickname: "阿凱", requestId: crypto.randomUUID() }).snapshot;
+  const snap = createRoom(ctx, "owner-session", { title: "社交測試", nickname: "阿凱", requestId: crypto.randomUUID(), storeIds: SAMPLE_STORE_IDS }).snapshot;
   return { db, ctx, snap, bubble };
 }
 
