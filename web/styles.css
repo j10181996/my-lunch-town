@@ -387,3 +387,9 @@ input, select, textarea { font-size: 16px; }
 .deadline-card.urgent { border-color: var(--accent); background: var(--err-bg); }
 @keyframes deadline-pulse { 50% { opacity: 0.65; } }
 @media (prefers-reduced-motion: reduce) { .deadline-tag.urgent { animation: none; } }
+
+/* 我的團（#17） */
+.my-room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.my-room { display: grid; gap: 6px; }
+.my-room-head { align-items: center; flex-wrap: wrap; }
+.my-room .tag.live { background: var(--green-bg); color: #2a6a35; }

@@ -1,5 +1,6 @@
 import { setLunchReady } from "./rooms/party";
 import { expireRoom, setDeadline } from "./rooms/deadline";
+import { myRooms } from "./rooms/history";
 import { listManagementStores } from "./stores/store-list";
 import { getTownCatalog } from "./stores/town-catalog";
 import { setHours } from "./stores/stores";
@@ -91,6 +92,7 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   app.get("/api/town", async () => getTown(db));
   app.get("/api/town/catalog", async () => getTownCatalog(db));
   app.get("/api/my/stores", async (req) => myStores(db, req.sid));
+  app.get("/api/my/rooms", async (req) => myRooms(db, req.sid));
   app.post("/api/stores", async (req) => createStore(db, req.sid, req.body as never));
   app.post("/api/stores/claim", async (req) =>
     claimStore(db, req.sid, (req.body as { manageKey?: unknown } | undefined)?.manageKey, demoKey),

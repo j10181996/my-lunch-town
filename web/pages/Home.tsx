@@ -6,6 +6,7 @@ import { link, navigate } from "../router";
 import { AVATAR_IDS } from "../../shared/town";
 import { AvatarPicker, Storefront, TopBar } from "../ui";
 import { TownMap } from "../TownMap";
+import { MyRooms } from "./MyRooms";
 
 export function Home() {
   const [deliveryPoint, setDeliveryPoint] = useState<Point | null>(() => {
@@ -96,6 +97,7 @@ export function Home() {
         <a className="btn" {...link("/shop")}>店家入口</a>
       </TopBar>
       <main className="page-body">
+        <MyRooms openStoreIds={new Set(openStores.map((s) => s.id))} />
         <form className="panel" id="create-room" onSubmit={create}>
           <h2>我要揪團</h2>
           {fromStore && <div className="banner ok" role="status">
