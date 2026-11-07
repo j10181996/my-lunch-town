@@ -5,6 +5,7 @@ import { buildApp } from "./app";
 import type { Ctx, RoomEvents } from "./context";
 import { TAICHUNG_SEED, openDb } from "./db";
 import { attachRealtime } from "./realtime/realtime";
+import { closeExpiredRooms } from "./rooms/deadline";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3000);
@@ -35,6 +36,15 @@ const app = await buildApp({
   demoKey: DEMO_KEY,
 });
 events = attachRealtime(app.server, db);
+
+// Node 為常駐行程：定期收掉已過截止的團。Sites 改由寫入請求與團員頁面觸發（見 rooms/deadline.ts）。
+setInterval(() => {
+  try {
+    closeExpiredRooms(ctx);
+  } catch (e) {
+    console.error("自動收單失敗，下一輪重試", e);
+  }
+}, 5_000).unref();
 
 await app.listen({ port: PORT, host: HOST });
 console.log(`午餐小鎮伺服器：http://localhost:${PORT}`);

@@ -394,3 +394,7 @@ export interface ManagementStoreList { scope: "all"; stores: ManagementStore[] }
 
 /** 散步模式（#44）：即時菜單中目前不收單的店，街景畫成休息中。 */
 export interface Store { resting?: boolean }
+
+/** 截止時間（#15）：毫秒 epoch；null 表示不設截止。時間到由伺服器自動收單。 */
+export interface Room { deadlineAt?: number | null }
+export interface CreateRoomInput { deadlineAt?: number | null }

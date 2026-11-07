@@ -1,6 +1,7 @@
 import { PARTY_SCHEMA } from "../server/rooms/party-schema";
 import { migrateStoreHours } from "../server/store-hours-schema";
 import { migrateDeliveryAddress } from "../server/delivery-address-schema";
+import { migrateDeadline } from "../server/rooms/deadline";
 import { SOCIAL_SCHEMA } from "../server/rooms/social-schema";
 import initSqlJs, { type Database, type SqlValue } from "sql.js/dist/sql-wasm-browser.js";
 import sqliteWasm from "./sqlite.wasm";
@@ -54,6 +55,7 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
     },
   } as unknown as Db;
   migrateStoreHours(db);
+  migrateDeadline(db);
   migrateDeliveryAddress(db);
   return { db, raw };
 }

@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { DELIVERY_ADDRESS_MAX, type Point, type TownLot } from "../../shared/contracts";
 import { roomGateway, storeGateway } from "../adapters/http";
-import { errorText, newRequestId } from "../api";
+import { ApiError, errorText, newRequestId } from "../api";
 import { link, navigate } from "../router";
 import { AVATAR_IDS } from "../../shared/town";
 import { AvatarPicker, Storefront, TopBar } from "../ui";
@@ -40,7 +40,11 @@ export function Home() {
   const [fromStoreId] = useState(() => new URLSearchParams(location.search).get("from"));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [requestId] = useState(newRequestId); // 開團重試沿用同一個 ID
+  const [requestId, setRequestId] = useState(newRequestId); // 開團重試沿用同一個 ID
+  const [deadlineChoice, setDeadlineChoice] = useState<DeadlineChoice>("none");
+  const [customTime, setCustomTime] = useState("12:00");
+  // 送出時換算的截止時間跟著 requestId 固定，網路重試才會送出相同內容。
+  const frozenDeadline = useRef<{ requestId: string; deadlineAt: number | null } | null>(null);
   const [town, setTown] = useState<TownLot[]>([]);
 
   useEffect(() => {
@@ -64,14 +68,21 @@ export function Home() {
     setError("");
     try {
       localStorageSet("lt-nickname", nickname);
+      if (frozenDeadline.current?.requestId !== requestId) {
+        frozenDeadline.current = { requestId, deadlineAt: deadlineFromChoice(deadlineChoice, customTime) };
+      }
+      const { deadlineAt } = frozenDeadline.current;
       // 沒選地點就全部自取，地址不送出。
       const address = deliveryPoint ? deliveryAddress.trim() : "";
       const r = await roomGateway.createRoom({
         title, nickname, avatarId: avatar, requestId, storeIds,
         deliveryPoint: deliveryPoint ?? undefined, deliveryAddress: address || undefined,
+        ...(deadlineAt !== null ? { deadlineAt } : {}),
       });
       navigate(r.invitePath);
     } catch (err) {
+      // 內容被拒（例如截止時間太近）時換新的請求 ID，改完設定可以重新送出。
+      if (!(err instanceof ApiError && err.retryable)) setRequestId(newRequestId());
       setError(errorText(err));
       setBusy(false);
     }
@@ -128,6 +139,24 @@ export function Home() {
                 : "請至少選一家店；只選一家最容易湊到外送門檻。"}</small>
             </> : <small className="muted">小鎮目前沒有營業中的店。</small>}
           </fieldset>
+          <fieldset className="store-picker">
+            <legend>收單截止 <small className="muted">時間到自動收單並送給店家</small></legend>
+            <div className="chips" role="radiogroup">
+              {DEADLINE_CHOICES.map(([value, label]) => (
+                <label key={value} className={`chip${deadlineChoice === value ? " on" : ""}`}>
+                  <input type="radio" name="deadline" checked={deadlineChoice === value} onChange={() => setDeadlineChoice(value)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {deadlineChoice === "at" && <label className="field">
+              截止時刻 <small>今天；已過的時間視為明天</small>
+              <input type="time" value={customTime} onChange={(e) => setCustomTime(e.target.value)} required />
+            </label>}
+            <small className="muted">{deadlineChoice === "none"
+              ? "不設截止，由你手動收單。"
+              : "截止前 5 分鐘提醒團員；時間到後不能再點餐。"}</small>
+          </fieldset>
           <div className="stack delivery-picker">
             <strong>送餐地點（點地圖選擇）</strong>
             <TownMap town={town} marker={deliveryPoint} onPick={pickDelivery}
@@ -157,6 +186,21 @@ export function Home() {
       </main>
     </div>
   );
+}
+
+type DeadlineChoice = "none" | "15" | "30" | "60" | "at";
+const DEADLINE_CHOICES: Array<[DeadlineChoice, string]> = [
+  ["none", "不設截止"], ["15", "15 分鐘後"], ["30", "30 分鐘後"], ["60", "1 小時後"], ["at", "指定時刻"],
+];
+
+function deadlineFromChoice(choice: DeadlineChoice, time: string, now = Date.now()): number | null {
+  if (choice === "none") return null;
+  if (choice !== "at") return now + Number(choice) * 60_000;
+  const [h, m] = time.split(":").map(Number);
+  const at = new Date(now);
+  at.setHours(h, m, 0, 0);
+  if (at.getTime() <= now) at.setDate(at.getDate() + 1);
+  return at.getTime();
 }
 
 function localStorageGet(k: string) {
