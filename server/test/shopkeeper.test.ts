@@ -29,11 +29,16 @@ describe("店主台詞", () => {
       .toContain("2 樣餐點都記下了，馬上準備！");
   });
 
-  it("收單與截止前提醒優先，且不輪替", () => {
-    expect(new Set(lines({ roomClosed: true }, 4))).toEqual(new Set(["這團已收單，下次再來喔！"]));
-    expect(lines({ deadlineAt: NOON + 4.5 * 60000 }, 3)).toEqual(Array(3).fill("再 5 分鐘截止收單，要快喔！"));
+  it("店家快不接單時店主優先提醒，且不輪替", () => {
+    expect(lines({ deadlineAt: NOON + 4.5 * 60000 }, 3)).toEqual(Array(3).fill("本店再 5 分鐘就不接單囉！"));
     expect(lines({ deadlineAt: NOON + 30 * 60000 }, 1)).toEqual(["歡迎光臨！午餐時間到～"]);
     expect(lines({ deadlineAt: NOON - 60000 }, 1)).toEqual(["歡迎光臨！午餐時間到～"]);
+  });
+
+  it("團收單後店主不喊收單，也不再叫人去點餐", () => {
+    const said = lines({ roomClosed: true, deadlineAt: NOON + 60000 }, 4);
+    expect(said[0]).toBe("歡迎光臨！午餐時間到～");
+    expect(said.join()).not.toMatch(/收單|不接單|按 Enter/);
   });
 
   it("散步模式邀請開團，不提收單與點餐", () => {

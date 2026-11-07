@@ -301,10 +301,10 @@ export class Game {
     for (const id of [...this.remotes.keys()]) if (!seen.has(id)) this.remotes.delete(id);
   }
 
-  showBubble(memberId: string, text: string) {
+  showBubble(memberId: string, text: string, durationMs = 2600) {
     if (!text) { this.bubbles.delete(memberId); return; }
     if (!this.social) return;
-    this.bubbles.set(memberId, { text, until: performance.now() + 2600 });
+    this.bubbles.set(memberId, { text, until: performance.now() + durationMs });
   }
 
   /** 目前場景的世界尺寸（邏輯像素）。 */

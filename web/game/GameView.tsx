@@ -7,6 +7,7 @@ import type { MoveInput, PresenceSnapshot, RoomSnapshot, SceneId, Store } from "
 import { roomGateway } from "../adapters/http";
 import { Game } from "./game";
 import { shopkeeperLine } from "./shopkeeper";
+import { ownerCall } from "./owner-calls";
 import { EMOTES, type EmoteId } from "../../shared/social";
 import { ACHIEVEMENTS, ACCESSORIES, collectibles, readCollection, saveCollection, type AchievementId, type Collection } from "./collection";
 
@@ -162,6 +163,24 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
   useEffect(() => {
     gameRef.current?.setPresence(presence.players);
   }, [presence]);
+
+  // 截止前與收單時由團主角色喊話（散步模式沒有團主）。只畫在各自的畫面上，不經伺服器廣播。
+  const ownerCallState = useRef({ wasOpen: snap.room.status === "open", reminded: null as number | null });
+  useEffect(() => {
+    if (solo) return;
+    const check = () => {
+      const s = snapRef.current, state = ownerCallState.current;
+      const call = ownerCall(s.room, state.wasOpen, state.reminded, Date.now());
+      state.wasOpen = s.room.status === "open";
+      if (!call) return;
+      state.reminded = call.reminded;
+      const owner = s.members.find((m) => m.role === "owner");
+      if (owner) gameRef.current?.showBubble(owner.id, call.text, 5000);
+    };
+    check();
+    const timer = setInterval(check, 1000);
+    return () => clearInterval(timer);
+  }, [solo, snap.room.status, snap.room.deadlineAt]);
 
   useEffect(() => {
     if (online) gameRef.current?.announce();

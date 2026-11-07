@@ -82,7 +82,7 @@ export interface RoomSnapshot {
   streetStores?: StreetStore[];
   room: Room;
   me: Member;
-  members: Array<Pick<Member, "id" | "nickname" | "avatarId">>;
+  members: Array<Pick<Member, "id" | "nickname" | "avatarId" | "role">>;
   catalog: Catalog;
   myItems: OrderItem[];
   myTotalTwd: number;
