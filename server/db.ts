@@ -1,5 +1,6 @@
 import { SOCIAL_SCHEMA } from "./rooms/social-schema";
 import { hashKey, withWriteTx } from "./db-shared";
+import { PAYMENT_REMINDER_SCHEMA } from "./rooms/payment-schema";
 export { hashKey, withWriteTx, AppError, err } from "./db-shared";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -233,5 +234,6 @@ function migratePayment(db: Db) {
       confirmed_at INTEGER,
       PRIMARY KEY (room_id, member_id)
     )`);
+    db.exec(PAYMENT_REMINDER_SCHEMA);
   });
 }

@@ -8,7 +8,7 @@ import { avatarDataUrl } from "../art/characters";
 import type { Game } from "../game/game";
 import { GameView } from "../game/GameView";
 import { deliveryForStore, GroupTotals, MenuPanel, MyOrder, PeopleDetail, RoomOrderStatus } from "../ordering/panels";
-import { PaymentCard, PaymentSettings } from "../ordering/payments";
+import { PaymentCard, PaymentReminder, PaymentSettings } from "../ordering/payments";
 import { useRoom } from "../state/useRoom";
 import { CopyButton, Modal, TopBar, copyText, money } from "../ui";
 import { NotFound } from "./NotFound";
@@ -273,6 +273,9 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
                     onClick={() => void paymentAction(() => roomGateway.sendPaymentInfo(snap.room.id))}>
                     傳送收款資訊給團員
                   </button>}
+                <PaymentReminder snap={snap} busy={paymentBusy || conn !== "online"}
+                  unpaidCount={room.summary?.people.filter((p) => p.paymentStatus === "unpaid").length ?? 0}
+                  onRemind={() => void paymentAction(() => roomGateway.remindUnpaid(snap.room.id))} />
               </div>}
 
               {isOwner &&

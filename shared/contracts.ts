@@ -301,10 +301,13 @@ export type PaymentMethod =
   | {
     type: "linepay";
     id: string;
+    /** 團主從 App 複製的收款連結；有填才產生 QR code。 */
+    link?: string;
   }
   | {
     type: "jkopay";
     id: string;
+    link?: string;
   }
   | {
     type: "cash";
@@ -324,10 +327,14 @@ export interface RoomSnapshot {
     info: PaymentInfo;
     sentAt: number | null;
     ownerNickname: string;
+    /** 僅團主可見：最近一次提醒未付款的時間。 */
+    remindedAt?: number | null;
   } | null;
   myPayment?: {
     amountTwd: number;
     status: PaymentStatus;
+    /** 僅在仍未付款時出現：團主最近一次提醒的時間。 */
+    remindedAt?: number | null;
   } | null;
 }
 export interface OwnerSummaryPerson {

@@ -29,6 +29,7 @@ export interface RoomGatewayExt extends RoomGateway {
   setPaymentInfo(roomId: string, info: PaymentInfo): Promise<RoomSnapshot>;
   sendPaymentInfo(roomId: string): Promise<RoomSnapshot>;
   reportPayment(roomId: string): Promise<RoomSnapshot>;
+  remindUnpaid(roomId: string): Promise<RoomSnapshot>;
   confirmPayment(roomId: string, memberId: string, confirmed: boolean): Promise<RoomSnapshot>;
   getPublicInfo(roomId: string): Promise<RoomPublicInfo>;
   onBubble(handler: (b: PlayerBubble) => void): () => void;
@@ -40,6 +41,7 @@ export const roomGateway: RoomGatewayExt = {
   setPaymentInfo: (id, info) => request("PUT", `/api/rooms/${id}/payment-info`, info),
   sendPaymentInfo: (id) => request("POST", `/api/rooms/${id}/payment-info/send`),
   reportPayment: (id) => request("POST", `/api/rooms/${id}/payment/report`),
+  remindUnpaid: (id) => request("POST", `/api/rooms/${id}/payment/remind`),
   confirmPayment: (id, memberId, confirmed) =>
     request("POST", `/api/rooms/${id}/payment/${memberId}/confirm`, { confirmed }),
   createRoom: (input) => request("POST", "/api/rooms", input),

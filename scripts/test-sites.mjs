@@ -70,11 +70,16 @@ for (const status of ["accepted", "preparing", "ready"]) {
 await owner("PUT", root + "/payment-info", { methods: [{ type: "cash", note: "測試用現金確認" }], note: "整合測試" });
 await owner("POST", root + "/payment-info/send", {});
 assert.equal((await guest("GET", root + "/snapshot")).myPayment.amountTwd, meal.priceTwd * 8);
+await guest("POST", root + "/payment/remind", {}, 403);
+const reminded = (await owner("POST", root + "/payment/remind", {})).payment.remindedAt;
+assert.equal((await guest("GET", root + "/snapshot")).myPayment.remindedAt, reminded);
+await owner("POST", root + "/payment/remind", {}, 400);
 await guest("POST", root + "/payment/report", {});
+assert.equal((await guest("GET", root + "/snapshot")).myPayment.remindedAt, null);
 await guest("POST", `${root}/payment/${joined.me.id}/confirm`, { confirmed: true }, 403);
 await owner("POST", `${root}/payment/${joined.me.id}/confirm`, { confirmed: true });
 assert.equal((await guest("GET", root + "/snapshot")).myPayment.status, "confirmed");
 assert.equal((await owner("GET", root + "/summary")).paymentProgress.paidCount, 1);
 await owner("POST", root + "/live", { ...ownerLive, leave: true });
-console.log("Sites integration passed: sessions, permissions, idempotency, 6 concurrent writes, presence, bubbles, close/export, store status, payment confirmation.");
+console.log("Sites integration passed: sessions, permissions, idempotency, 6 concurrent writes, presence, bubbles, close/export, store status, payment reminder and confirmation.");
 console.log(`Persistence fixture: ${root}`);
