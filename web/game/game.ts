@@ -115,9 +115,10 @@ export class Game {
 
   private resetInput() { this.keys.clear(); this.touchInput = { x: 0, y: 0 }; }
 
-  /** 點擊店內陳列台；以實際 canvas 尺寸還原世界座標，避開 DPR 與留白。 */
+  /** 唯讀商品位置，供觸控端對端測試定位。 */
   debugProducts() { return this.art?.products ?? []; }
 
+  /** 點擊店內陳列台；以實際 canvas 尺寸還原世界座標，避開 DPR 與留白。 */
   productAt(clientX: number, clientY: number): string | null {
     if (!this.enabled || this.sceneId === "street") return null;
     const rect = this.display.getBoundingClientRect();
