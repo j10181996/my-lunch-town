@@ -13,7 +13,9 @@ try {
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    const createdResponse = await context.request.post(base + "/api/rooms", { data: { title: "手機點餐測試", nickname: "手機團長", requestId: crypto.randomUUID() } });
+    const town = await (await context.request.get(base + "/api/town")).json();
+    const storeIds = town.flatMap((lot) => (lot.store?.status === "open" ? [lot.store.id] : []));
+    const createdResponse = await context.request.post(base + "/api/rooms", { data: { title: "手機點餐測試", nickname: "手機團長", requestId: crypto.randomUUID(), storeIds } });
     assert.equal(createdResponse.status(), 200);
     const created = await createdResponse.json(), root = `/api/rooms/${created.snapshot.room.id}`;
     await page.goto(base + created.invitePath);

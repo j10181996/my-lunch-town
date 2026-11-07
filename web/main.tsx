@@ -10,6 +10,14 @@ import { ShopNew } from "./shop-admin/ShopNew";
 import { ShopAdmin } from "./shop-admin/ShopAdmin";
 import { NotFound } from "./pages/NotFound";
 
+// Canvas text does not trigger CSS font downloads by itself. The render loop
+// picks up the loaded faces on the next frame; failure keeps the fallback usable.
+void Promise.all([
+  document.fonts.load('16px "Cubic 11"'),
+  document.fonts.load('400 16px "Noto Sans TC"'),
+  document.fonts.load('700 16px "Noto Sans TC"'),
+]).catch(() => {});
+
 function App() {
   const path = usePath();
   let m: RegExpMatchArray | null;

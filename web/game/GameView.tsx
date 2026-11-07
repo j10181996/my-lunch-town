@@ -135,7 +135,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     g.setDeliveryPoint(snap.room.deliveryPoint ?? null);
     g.setSelf(snap.me.id);
     g.setMembers(snap.members);
-    g.setCatalog(snap.catalog.stores, snap.catalog.meals);
+    g.setCatalog(snap.catalog.stores, snap.catalog.meals, snap.streetStores);
     g.setMyQuantities(new Map(snap.myItems.map((i) => [i.mealId, i.quantity])));
     if (snap.myTotalQuantity > 0) unlock("order");
   }, [snap]);

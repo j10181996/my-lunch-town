@@ -9,6 +9,7 @@ import { createRoom, buildSnapshot } from "../rooms/rooms";
 import { setHours, getTown } from "../stores/stores";
 import { changeQuantity, closeRoom } from "../orders/orders";
 import { buildApp } from "../app";
+import { SAMPLE_STORE_IDS } from "./fixtures";
 
 const instant = (date: string) => Date.parse(date + "+08:00");
 const hours = (day = 1, open = "09:00", close = "18:00", cutoff: string | null = "17:00"): StoreHours => ({
@@ -66,11 +67,13 @@ it("excludes closed stores AND their meals from new rooms; keeps existing price 
     const ctx = { db, events: noopEvents };
     db.prepare("UPDATE stores SET owner_session_id = 'shop' WHERE id = 'store-af'").run();
     setHours(db, "shop", "store-af", hours());
-    const first = createRoom(ctx, "owner", { title: "午餐", nickname: "團主", requestId: "first-request" });
+    const first = createRoom(ctx, "owner", { title: "午餐", nickname: "團主", requestId: "first-request", storeIds: SAMPLE_STORE_IDS });
     expect(first.snapshot.catalog.stores.find((s) => s.id === "store-af")?.orderDeadlineAt).toBe(instant("2026-11-09T17:00:00"));
     changeQuantity(ctx, "owner", first.snapshot.room.id, { mealId: "meal-af-chicken", delta: 1, requestId: "order-request" });
     setHours(db, "shop", "store-af", { weekly: Array.from({ length: 7 }, () => []), cutoff: null });
-    const second = createRoom(ctx, "other", { title: "晚餐", nickname: "團主", requestId: "second-request" });
+    expect(() => createRoom(ctx, "other", { title: "晚餐", nickname: "團主", requestId: "closed-request", storeIds: SAMPLE_STORE_IDS }))
+      .toThrow("「阿福便當」目前沒有營業");
+    const second = createRoom(ctx, "other", { title: "晚餐", nickname: "團主", requestId: "second-request", storeIds: ["store-tree", "store-green"] });
     expect(second.snapshot.catalog.stores.some((s) => s.id === "store-af")).toBe(false);
     expect(second.snapshot.catalog.meals.some((m) => m.storeId === "store-af")).toBe(false);
     expect(getTown(db).find((l) => l.store?.id === "store-af")?.store?.status).toBe("resting");
@@ -89,7 +92,7 @@ it("filters by time at room creation and preserves requestId across closing boun
   try {
     db.prepare("UPDATE stores SET hours_json = ?").run(JSON.stringify(hours()));
     const ctx = { db, events: noopEvents };
-    const input = { title: "午餐", nickname: "團主", requestId: "retry-create" };
+    const input = { title: "午餐", nickname: "團主", requestId: "retry-create", storeIds: SAMPLE_STORE_IDS };
     const first = createRoom(ctx, "owner", input);
     now.mockReturnValue(instant("2026-11-09T18:00:00"));
     expect(createRoom(ctx, "owner", input).snapshot.room.id).toBe(first.snapshot.room.id);

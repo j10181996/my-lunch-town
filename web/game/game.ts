@@ -5,6 +5,7 @@ import type { Point, Direction, Meal, MoveInput, PlayerPresence, SceneId, Store 
 import { STREET_W, STREET_H, STREET_SPAWN, sceneSize, viewSize } from "../../shared/town";
 import { CHAR_H, CHAR_W, characterFrames } from "../art/characters";
 import { buildShop, buildStreet, type ProductSlot, type Rect, type SceneArt } from "../art/scenes";
+import type { StreetStore } from "../../shared/contracts";
 
 const SPEED = 84; // 邏輯像素／秒（大地圖走快一點，橫越約 11 秒）
 const FOOT_W = 8;
@@ -65,6 +66,7 @@ export class Game {
 
   private deliveryPoint: Point | null = null;
   private stores: Store[] = [];
+  private streetStores: StreetStore[] = [];
   private meals: Meal[] = [];
   private nearProduct: ProductSlot | null = null;
   private myQty = new Map<string, number>();
@@ -213,13 +215,15 @@ export class Game {
     this.display.height = Math.round(VIEW_H * s * this.dpr);
   }
 
-  setCatalog(stores: Store[], meals: Meal[]) {
-    const sig = catalogSig(stores, meals);
-    const prev = catalogSig(this.stores, this.meals);
+  /** streetStores 只是街景：不在 this.stores，因此不會出現進店提示。 */
+  setCatalog(stores: Store[], meals: Meal[], streetStores: StreetStore[] = []) {
+    const sig = catalogSig(stores, meals, streetStores);
+    const prev = catalogSig(this.stores, this.meals, this.streetStores);
     this.stores = stores;
     this.meals = meals;
+    this.streetStores = streetStores;
     if (sig === prev && this.streetArt) return;
-    this.streetArt = buildStreet(stores);
+    this.streetArt = buildStreet(stores, new Set(), streetStores);
     this.shopArt.clear();
     this.applySceneArt();
   }
@@ -579,6 +583,9 @@ export class Game {
     // 放大到顯示畫布
     const d = this.dctx;
     const k = this.scale * this.dpr;
+    // Floors are CSS pixels, independent of world scale and devicePixelRatio.
+    const readable = (worldSize: number, minimum = 14) => Math.max(worldSize * k, minimum * this.dpr);
+    const PIXEL = '"Cubic 11","Noto Sans TC",sans-serif';
     d.setTransform(1, 0, 0, 1, 0, 0);
     d.imageSmoothingEnabled = false;
     d.drawImage(this.buffer, 0, 0, v.w * k, v.h * k);
@@ -599,21 +606,29 @@ export class Game {
     d.textAlign = "center";
     d.textBaseline = "middle";
     for (const s of this.art?.signs ?? []) {
-      d.font = `700 ${s.size * k}px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif`;
+      const size = readable(s.size, 16);
+      const width = Math.min(Math.max(s.w * k, 96 * this.dpr), this.display.width - 16 * this.dpr);
+      const sign = fitText(d, s.text, width, size, size, "400", PIXEL);
+      const center = Math.max(cam.x * k + width / 2 + 4 * this.dpr,
+        Math.min((s.x + s.w / 2) * k, cam.x * k + this.display.width - width / 2 - 4 * this.dpr));
+      d.font = sign.font;
+      d.lineWidth = 3 * this.dpr;
+      d.strokeStyle = "#fffaf0";
+      d.strokeText(sign.text, center, s.y * k);
       d.fillStyle = s.color;
-      d.fillText(s.text, (s.x + s.w / 2) * k, s.y * k, s.w * k);
+      d.fillText(sign.text, center, s.y * k);
     }
     if (this.sceneId === "street" && this.deliveryPoint) {
       const x = this.deliveryPoint.x * STREET_W;
       const y = this.deliveryPoint.y * STREET_H;
-      d.font = `700 ${8 * k}px "PingFang TC",sans-serif`;
+      d.font = `400 ${readable(8)}px ${PIXEL}`;
       d.lineWidth = 2 * k;
       d.strokeStyle = "#fffaf0";
       d.fillStyle = "#3b2a20";
       d.strokeText("送餐地點", x * k, (y - 21) * k);
       d.fillText("送餐地點", x * k, (y - 21) * k);
     }
-    const FONT = `"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif`;
+    const FONT = `"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif`;
     // 陳列台商品：前板兩行（品名、價格），字太長先縮小、再截斷
     for (const p of this.art?.products ?? []) {
       const meal = this.meals.find((m) => m.id === p.mealId);
@@ -643,9 +658,9 @@ export class Game {
       const meal = this.meals.find((m) => m.id === p.mealId);
       if (meal) {
         const label = `${meal.name}  NT$${meal.priceTwd}`;
-        d.font = `800 ${6 * k}px ${FONT}`;
+        d.font = `700 ${readable(6, 16)}px ${FONT}`;
         const w = d.measureText(label).width + 8 * k;
-        const h = 10 * k;
+        const h = Math.max(10 * k, 24 * this.dpr);
         const top = (p.y - 20) * k;
         const left = Math.min(Math.max(p.x * k - w / 2, 2 * k), (this.world.w - 2) * k - w);
         d.fillStyle = "#3b2a20";
@@ -674,19 +689,20 @@ export class Game {
       if (dr.friend && !friendNear && !this.bubbles.has(dr.id)) continue;
       const name = `${dr.badge ? ACHIEVEMENTS.find((a) => a.id === dr.badge)?.icon ?? "" : ""}${dr.name}`;
       const top = (dr.a.y + 2) * k;
-      d.font = `600 ${5 * k}px "PingFang TC","Noto Sans TC",sans-serif`;
-      const w = d.measureText(name).width + 4 * k;
+      d.font = `400 ${readable(5)}px ${PIXEL}`;
+      const nameHeight = Math.max(7 * k, 20 * this.dpr);
+      const w = d.measureText(name).width + 8 * this.dpr;
       d.fillStyle = dr.self ? "#d9483ecc" : "#3b2a20bb";
-      roundRect(d, cx - w / 2, top, w, 7 * k, 2 * k);
+      roundRect(d, cx - w / 2, top, w, nameHeight, 2 * this.dpr);
       d.fillStyle = "#fff";
-      d.fillText(name, cx, top + 3.6 * k);
+      d.fillText(name, cx, top + nameHeight / 2);
 
       const bub = this.bubbles.get(dr.id);
       if (bub && bub.until > now) {
         const by = (dr.a.y - CHAR_H - 4) * k;
-        d.font = `700 ${6 * k}px "PingFang TC","Noto Sans TC",sans-serif`;
+        d.font = `400 ${readable(6)}px ${PIXEL}`;
         const bw = d.measureText(bub.text).width + 6 * k;
-        const bh = 10 * k;
+        const bh = Math.max(10 * k, 22 * this.dpr);
         d.fillStyle = "#3b2a20";
         roundRect(d, cx - bw / 2 - k * 0.6, by - bh - k * 0.6, bw + k * 1.2, bh + k * 1.2, 3 * k);
         d.fillStyle = "#fffdf6";
@@ -734,9 +750,10 @@ function roundRect(d: CanvasRenderingContext2D, x: number, y: number, w: number,
 
 export type { Rect };
 
-function catalogSig(stores: Store[], meals: Meal[]) {
+function catalogSig(stores: Store[], meals: Meal[], streetStores: StreetStore[]) {
   return [
     ...stores.map((s) => `${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}`),
+    ...streetStores.map((s) => `street:${s.id}:${s.lotIndex}:${s.styleKey}:${s.name}`),
     ...meals.map((m) => `${m.id}:${m.name}:${m.priceTwd}:${m.imageAssetKey}`),
   ].join("|");
 }
