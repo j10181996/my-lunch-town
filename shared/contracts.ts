@@ -316,9 +316,17 @@ export interface CreateRoomInput { deliveryLocation?: GeoPoint }
 /** 開團時與外送規則一起凍結。 */
 export interface Store { location?: GeoPoint | null }
 export interface StoreProfile { location: GeoPoint | null }
-export interface SetStoreLocationInput { location: GeoPoint | null }
+/** address 選填：一併更新店家地址（地址推算座標時使用）。 */
+export interface SetStoreLocationInput { location: GeoPoint | null; address?: string }
 export interface StoreAdminGateway {
-  setLocation(storeId: Id, location: GeoPoint | null): Promise<StoreProfile>;
+  setLocation(storeId: Id, location: GeoPoint | null, address?: string): Promise<StoreProfile>;
+}
+/** 地址推算座標的結果。house：門牌吻合；street：只找到路段或巷弄；area：只找到大略區域。 */
+export interface GeocodeResult {
+  location: GeoPoint;
+  precision: "house" | "street" | "area";
+  /** 地圖資料中的完整地名，給使用者確認 */
+  label: string;
 }
 
 export interface OwnerSummaryPerson {

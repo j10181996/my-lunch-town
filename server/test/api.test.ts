@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { DELIVERY_ADDRESS_MAX, type RoomSnapshot } from "../../shared/contracts";
 import type { FastifyInstance } from "fastify";
@@ -786,7 +786,35 @@ describe("真實經緯度外送", () => {
     expect((await shop.put("/api/stores/store-af/location", { location: { lat: 24.1234567, lng: 120.7 } })).body.location)
       .toEqual({ lat: 24.123457, lng: 120.7 });
     expect((await shop.put("/api/stores/store-af/location", { location: null })).body.location).toBeNull();
+    // 帶地址時一併更新店家地址；地址格式錯誤整筆不寫入
+    expect((await shop.put("/api/stores/store-af/location", { location: af, address: " 臺中市西區昇平街132號 " })).body)
+      .toMatchObject({ location: af, address: "臺中市西區昇平街132號" });
+    expect(await shop.put("/api/stores/store-af/location", { location: tree, address: "短" }))
+      .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+    expect((await shop.get("/api/stores/store-af")).body).toMatchObject({ location: af, address: "臺中市西區昇平街132號" });
   });
+
+  it("地址查座標路由：GET、路徑帶編碼地址，查不到回 400", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const street = new URL(url).searchParams.get("street");
+      const body = street === "132號 昇平街"
+        ? [{ lat: "24.1456369", lon: "120.6600005", display_name: "132號, 昇平街, 西區, 臺中市, 臺灣", address: { house_number: "132號" } }]
+        : [];
+      return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const c = client();
+      expect(await c.get(`/api/geocode/${encodeURIComponent("臺中市西區昇平街132號")}`)).toMatchObject({
+        status: 200, body: { location: { lat: 24.145637, lng: 120.660001 }, precision: "house" },
+      });
+      expect(await c.get(`/api/geocode/${encodeURIComponent("臺中市西區查無此路9號")}`))
+        .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+      expect(fetchMock.mock.calls.every(([url]) => String(url).startsWith("https://nominatim.openstreetmap.org/search"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }, 15_000);
 
   it("開團凍結店家位置；收單依真實距離，店家未設位置則自取", async () => {
     const shop = client();

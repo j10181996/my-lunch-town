@@ -11,8 +11,7 @@ import type {
 } from "../../shared/contracts";
 import { describeFulfillment, validateDeliveryRules } from "../../shared/delivery";
 import type { GeoPoint } from "../../shared/contracts";
-import { mapsSearchUrl } from "../../shared/geo";
-import { LocationPicker } from "../LocationPicker";
+import { AddressLocator } from "../AddressLocator";
 import { DIET_TAGS, dietTagsOf } from "../../shared/diet";
 import { DEFAULT_MEAL_ART, MEAL_ART, styleOf } from "../../shared/town";
 import { storeGateway as gw } from "../adapters/http";
@@ -625,18 +624,21 @@ function StoreOrderCard({ order, onSaved, onSeen }: {
 /** 店家真實位置：外送距離以團的送餐位置到這裡的直線距離計算。 */
 function StoreLocationSettings({ profile, onSaved }: { profile: StoreProfile; onSaved(p: StoreProfile): void }) {
   const [location, setLocation] = useState<GeoPoint | null>(profile.location);
+  const [address, setAddress] = useState(profile.address ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  const dirty = location?.lat !== profile.location?.lat || location?.lng !== profile.location?.lng;
+  const dirty = location?.lat !== profile.location?.lat || location?.lng !== profile.location?.lng
+    || address.trim() !== (profile.address ?? "");
   async function save(next: GeoPoint | null) {
     setError("");
     setSaved(false);
     setBusy(true);
     try {
-      const p = await gw.setLocation(profile.id, next);
+      const p = await gw.setLocation(profile.id, next, next && address.trim() ? address.trim() : undefined);
       onSaved(p);
       setLocation(p.location);
+      setAddress(p.address ?? "");
       setSaved(true);
     } catch (e) {
       setError(errorText(e));
@@ -647,11 +649,10 @@ function StoreLocationSettings({ profile, onSaved }: { profile: StoreProfile; on
   return <section className="stack delivery-settings" aria-label="店家位置">
     <h3>店家位置</h3>
     {!profile.location && <small className="muted">尚未設定位置；開了外送也無法計算距離，揪團會以自取送單</small>}
-    {profile.address && <small className="muted">
-      地址：{profile.address} · <a href={mapsSearchUrl(profile.address)} target="_blank" rel="noreferrer">在 Google 地圖找座標</a>
-    </small>}
-    <LocationPicker label="店家位置" value={location} disabled={busy}
-      onChange={(p) => { setLocation(p); setSaved(false); }} />
+    <AddressLocator label="店家地址" maxLength={100} placeholder="例：臺中市西區昇平街132號"
+      address={address} location={location} disabled={busy}
+      onAddressChange={(a) => { setAddress(a); setSaved(false); }}
+      onLocationChange={(p) => { setLocation(p); setSaved(false); }} />
     {error && <div className="banner error" role="alert">{error}</div>}
     {saved && <small className="delivery-saved" role="status">店家位置已儲存</small>}
     <div className="row">

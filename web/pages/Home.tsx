@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { DELIVERY_ADDRESS_MAX, type GeoPoint, type TownLot } from "../../shared/contracts";
 import { validateGeoPoint } from "../../shared/geo";
-import { roomGateway, storeGateway } from "../adapters/http";
+import { geoGateway, roomGateway, storeGateway } from "../adapters/http";
 import { ApiError, errorText, newRequestId } from "../api";
 import { link, navigate } from "../router";
 import { AVATAR_IDS } from "../../shared/town";
 import { AvatarPicker, TopBar } from "../ui";
-import { LocationPicker } from "../LocationPicker";
+import { AddressLocator } from "../AddressLocator";
 import { MyRooms } from "./MyRooms";
 
 export function Home() {
@@ -67,17 +67,28 @@ export function Home() {
     e.preventDefault();
     setBusy(true);
     setError("");
+    const address = deliveryAddress.trim();
+    let location = deliveryLocation;
+    // 填了地址還沒定位（例如直接按開團）：先查；查不到就停下來，不默默改成自取。
+    if (address && !location) {
+      try {
+        location = (await geoGateway.geocode(address)).location;
+        pickDelivery(location);
+      } catch (err) {
+        setError(`${errorText(err)}；不外送請清空送餐地址`);
+        setBusy(false);
+        return;
+      }
+    }
     try {
       localStorageSet("lt-nickname", nickname);
       if (frozenDeadline.current?.requestId !== requestId) {
         frozenDeadline.current = { requestId, deadlineAt: deadlineFromChoice(deadlineChoice, customTime) };
       }
       const { deadlineAt } = frozenDeadline.current;
-      // 沒選地點就全部自取，地址不送出。
-      const address = deliveryLocation ? deliveryAddress.trim() : "";
       const r = await roomGateway.createRoom({
         title, nickname, avatarId: avatar, requestId, storeIds,
-        deliveryLocation: deliveryLocation ?? undefined, deliveryAddress: address || undefined,
+        deliveryLocation: location ?? undefined, deliveryAddress: location && address ? address : undefined,
         ...(deadlineAt !== null ? { deadlineAt } : {}),
       });
       navigate(r.invitePath);
@@ -160,20 +171,17 @@ export function Home() {
               : "截止前 5 分鐘提醒團員；時間到後不能再點餐。"}</small>
           </fieldset>
           <div className="stack delivery-picker">
-            <strong>送餐位置</strong>
-            <LocationPicker label="送餐位置" value={deliveryLocation} onChange={pickDelivery} />
+            <AddressLocator label="送餐地址" maxLength={DELIVERY_ADDRESS_MAX}
+              placeholder="例：台中市西屯區市政北二路 100 號 8 樓，到了請打分機 123"
+              address={deliveryAddress} location={deliveryLocation}
+              onAddressChange={setDeliveryAddress} onLocationChange={pickDelivery} />
             <small className="muted">{deliveryLocation
-              ? "已設定送餐位置，收單時依與各店的直線距離與門檻決定外送或自取。"
-              : "未設定送餐位置，全部自取。"}</small>
-            {deliveryLocation && <label className="field">
-              送餐地址 <small>選填，最多 {DELIVERY_ADDRESS_MAX} 字；只給團員與要外送的店家看</small>
-              <input type="text" value={deliveryAddress} maxLength={DELIVERY_ADDRESS_MAX}
-                placeholder="例：台中市西屯區市政北二路 100 號 8 樓，到了請打分機 123"
-                onChange={(e) => setDeliveryAddress(e.target.value)} />
-            </label>}
-            <button type="button" className="btn small" onClick={() => pickDelivery(null)}>
+              ? "收單時依送餐地址與各店的直線距離、門檻決定外送或自取；地址只給團員與要外送的店家看。"
+              : "不填送餐地址就全部自取。"}</small>
+            {(deliveryAddress || deliveryLocation) && <button type="button" className="btn small"
+              onClick={() => { setDeliveryAddress(""); pickDelivery(null); }}>
               不外送，全部自取
-            </button>
+            </button>}
           </div>
           {error && <div className="banner error">{error}</div>}
           <button className="btn primary big" disabled={busy || storeIds.length === 0}>

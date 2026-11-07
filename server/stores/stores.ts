@@ -316,18 +316,23 @@ export function setDelivery(db: Db, sessionId: string, storeId: string, input: u
   });
 }
 
-/** body：{ location: { lat, lng } | null }；null 清除位置。修改只套用到之後開的團。 */
+/**
+ * body：{ location: { lat, lng } | null, address?: string }；null 清除位置。
+ * 帶 address 時一併更新店家地址。修改只套用到之後開的團。
+ */
 export function setLocation(db: Db, sessionId: string, storeId: string, input: unknown): StoreProfile {
   return withWriteTx(db, () => {
     requireOwner(db, sessionId, storeId);
     if (!input || typeof input !== "object" || !("location" in input)) throw err.invalid("請提供店家位置");
-    const raw = (input as { location: unknown }).location;
+    const body = input as { location: unknown; address?: unknown };
     let location = null;
-    if (raw !== null) {
-      try { location = validateGeoPoint(raw, "店家位置"); } catch (e) { throw err.invalid((e as Error).message); }
+    if (body.location !== null) {
+      try { location = validateGeoPoint(body.location, "店家位置"); } catch (e) { throw err.invalid((e as Error).message); }
     }
+    const address = body.address === undefined ? undefined : text(body.address, "店家地址", 4, 100);
     db.prepare("UPDATE stores SET lat = ?, lng = ?, updated_at = ? WHERE id = ?")
       .run(location?.lat ?? null, location?.lng ?? null, Date.now(), storeId);
+    if (address !== undefined) db.prepare("UPDATE stores SET address = ? WHERE id = ?").run(address, storeId);
     return loadProfile(db, storeId);
   });
 }

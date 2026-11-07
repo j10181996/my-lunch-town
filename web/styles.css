@@ -267,7 +267,12 @@ label.field small { font-weight: 400; color: var(--sub); }
 }
 .fulfillment-badge.delivery { background: var(--green-bg); color: var(--green); }
 .delivery-address { overflow-wrap: anywhere; }
-.location-value { color: var(--sub); overflow-wrap: anywhere; }
+.location-value { color: var(--green); overflow-wrap: anywhere; }
+.location-value.approximate { color: var(--accent-ink); }
+.address-row { flex-wrap: nowrap; }
+.address-row input { flex: 1; min-width: 0; }
+.address-locator details summary { cursor: pointer; color: var(--sub); font-size: 14px; }
+.attribution { font-size: 12px; }
 .delivery-warning { flex-direction: column; align-items: flex-start; }
 .delivery-settings { border-block: 1px solid var(--line); padding: 12px 0; }
 .delivery-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }

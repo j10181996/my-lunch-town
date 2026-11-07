@@ -61,8 +61,3 @@ export function formatGeo(p: GeoPoint): string {
 export function mapsUrl(p: GeoPoint): string {
   return `https://www.google.com/maps?q=${p.lat},${p.lng}`;
 }
-
-/** 讓店家用地址搜尋後，從 Google 地圖複製座標。 */
-export function mapsSearchUrl(address: string): string {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-}
