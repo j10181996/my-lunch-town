@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MoveInput, PresenceSnapshot, RoomSnapshot, SceneId, Store } from "../../shared/contracts";
 import { roomGateway } from "../adapters/http";
 import { Game } from "./game";
+import { shopkeeperLine } from "./shopkeeper";
 import { EMOTES, type EmoteId } from "../../shared/social";
 import { ACHIEVEMENTS, ACCESSORIES, collectibles, readCollection, saveCollection, type AchievementId, type Collection } from "./collection";
 
@@ -30,6 +31,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const [nearFriend, setNearFriend] = useState<{ name: string; animal: boolean } | null>(null);
+  const [nearClerk, setNearClerk] = useState(false);
   const [lifeEnabled, setLifeEnabled] = useState(() => { try { return localStorage.getItem("lunch-town:life") !== "off"; } catch { return true; } });
   const [social, setSocial] = useState(snap.socialEnabled !== false);
   const [socialBusy, setSocialBusy] = useState(false);
@@ -98,6 +100,21 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
       onNearDoor: setNearDoor,
       onNearFriend: setNearFriend,
       onPet: () => unlock("friend"),
+      onNearClerk: setNearClerk,
+      clerkLine: (storeId, talk) => {
+        const s = snapRef.current;
+        const meals = s.catalog.meals.filter((m) => m.storeId === storeId);
+        return shopkeeperLine({
+          meals: meals.filter((m) => m.available),
+          ordered: s.myItems.flatMap((item) => {
+            const meal = meals.find((m) => m.id === item.mealId);
+            return meal ? [{ name: meal.name, quantity: item.quantity }] : [];
+          }),
+          roomClosed: s.room.status === "closed",
+          deadlineAt: s.catalog.stores.find((store) => store.id === storeId)?.orderDeadlineAt ?? null,
+          solo, talk, now: Date.now(),
+        });
+      },
       onCollect: (id) => {
         const current = collectionRef.current;
         if (current.items.includes(id)) return;
@@ -202,6 +219,9 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
       {!inShop && !nearDoor && nearFriend && <button className="btn primary friend-interact" onClick={() => gameRef.current?.interact()}>
         {nearFriend.animal ? `♥ 摸摸${nearFriend.name}` : `和${nearFriend.name}聊聊`} · Enter
       </button>}
+      {inShop && nearClerk && !nearMeal && <button className="btn primary friend-interact" onClick={() => gameRef.current?.talkToClerk()}>
+        和店主聊聊 · Enter
+      </button>}
       {inShop && (
         <button className="btn back" onClick={() => gameRef.current?.leaveStore()}>
           ← 返回街道
@@ -229,7 +249,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           {canOrder ? <><span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>加一份「{nearMeal.name}」NT${nearMeal.priceTwd}</> : `「${nearMeal.name}」目前不能點餐`}
         </button>
       )}
-      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
+      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
     </div>
   );
 }

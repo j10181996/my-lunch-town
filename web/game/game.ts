@@ -17,6 +17,11 @@ const DOOR_RY = 10;
 const DOOR_WALK_IN_RX = 9;
 const EXIT = { x: 192, y: 205, rx: 18 };
 const SEND_INTERVAL_MS = 100;
+/** 店主畫在櫃檯後（scenes.ts 的 clerk）的腳底位置。 */
+const CLERK = { x: 260, y: 58 };
+/** 櫃檯碰撞到 y 104；腳站在 118 以上、櫃檯左右範圍內就算在櫃檯前。 */
+const COUNTER_FRONT = { left: 29, right: 355, maxY: 118 };
+const CLERK_BUBBLE_ID = "shop-clerk";
 /** 陳列台前板上，價格行在品名行下方多少（邏輯像素）。 */
 const PRODUCT_PRICE_DY = 7.5;
 
@@ -36,6 +41,10 @@ export interface GameCallbacks {
   onPickProduct(mealId: string): void;
   onNearFriend?(friend: { name: string; animal: boolean } | null): void;
   onPet?(): void;
+  /** 站到櫃檯前、可以和店主說話（#80）。 */
+  onNearClerk?(near: boolean): void;
+  /** 店主這次要說的話；talk 為這次進店後第幾次說話。 */
+  clerkLine?(storeId: string, talk: number): string;
   onCollect?(id: string): void;
 }
 
@@ -92,6 +101,8 @@ export class Game {
   private badge: AchievementId | undefined;
   private items: Array<{ id: string; x: number; y: number; icon: string }> = [];
   private lastInteraction = 0;
+  private nearClerk = false;
+  private clerkTalks = 0;
 
   setTownLife(roomId: string, enabled: boolean) {
     if (roomId !== this.roomId) { this.roomId = roomId; this.friends = createTownFriends(roomId); this.friendPoses.clear(); }
@@ -122,6 +133,22 @@ export class Game {
       ? ["今天也要記得吃午餐喔！", "沿著小路走，就能找到好吃的。", "聽說橘子最喜歡被摸摸了！"][Math.floor(now / 1000) % 3]
       : `♥ ${friend.name}開心地蹭了蹭你！`, until: now + 2600 });
     if (friend.kind !== "villager") this.cb.onPet?.();
+  }
+
+  private setNearClerk(near: boolean) {
+    if (this.nearClerk === near) return;
+    this.nearClerk = near;
+    this.cb.onNearClerk?.(near);
+  }
+
+  /** 在櫃檯前和店主說話（Enter 或畫面上的按鈕）。 */
+  talkToClerk() {
+    if (!this.enabled || this.sceneId === "street" || !this.nearClerk) return;
+    const now = performance.now();
+    if (now - this.lastInteraction < 800) return;
+    this.lastInteraction = now;
+    const text = this.cb.clerkLine?.(this.sceneId.slice(5), this.clerkTalks++);
+    if (text) this.bubbles.set(CLERK_BUBBLE_ID, { text, until: now + 3200 });
   }
 
   private keys = new Set<string>();
@@ -297,7 +324,7 @@ export class Game {
   /** 唯讀的除錯資訊：自動化測試用來導航（不提供任何改變狀態的方法）。 */
   debugState() {
     return { x: this.me.x, y: this.me.y, scene: this.sceneId, nearDoor: this.nearDoor?.id ?? null, nearProduct: this.nearProduct?.mealId ?? null,
-      nearFriend: this.nearFriend?.name ?? null, friends: this.visibleFriends().map((f) => ({ ...f, pose: this.friendPoses.get(f.id) })),
+      nearFriend: this.nearFriend?.name ?? null, nearClerk: this.nearClerk, friends: this.visibleFriends().map((f) => ({ ...f, pose: this.friendPoses.get(f.id) })),
       bubbles: [...this.bubbles].filter(([, b]) => b.until > performance.now()), accessory: this.accessory,
       items: this.items, remotes: [...this.remotes].map(([id, r]) => ({ id, scene: r.sceneId, accessory: r.accessory, badge: r.badge })) };
   }
@@ -320,6 +347,9 @@ export class Game {
     this.setNearDoor(null);
     this.setNearFriend(null);
     this.setNearProduct(null);
+    this.setNearClerk(false);
+    this.bubbles.delete(CLERK_BUBBLE_ID);
+    this.clerkTalks = 0;
     this.cb.onSceneChange(this.sceneId);
     this.sendMove(true);
   }
@@ -337,6 +367,8 @@ export class Game {
     this.applySceneArt();
     this.applyView();
     this.setNearProduct(null);
+    this.setNearClerk(false);
+    this.bubbles.delete(CLERK_BUBBLE_ID);
     this.cb.onSceneChange(this.sceneId);
     this.sendMove(true);
   }
@@ -379,6 +411,10 @@ export class Game {
       if (t && (t.tagName === "BUTTON" || t.tagName === "A")) return;
       e.preventDefault();
       this.interact();
+    } else if (k === "enter" && this.nearClerk && !e.repeat) {
+      if (t && (t.tagName === "BUTTON" || t.tagName === "A")) return;
+      e.preventDefault();
+      this.talkToClerk();
     } else if (k === "e" && this.nearDoor) {
       this.enterStore(this.nearDoor.id);
     } else if (k === "escape" && this.sceneId !== "street") {
@@ -461,6 +497,8 @@ export class Game {
         (p) => me.x >= p.zone.x && me.x < p.zone.x + p.zone.w && me.y >= p.zone.y && me.y < p.zone.y + p.zone.h,
       );
       this.setNearProduct(near ?? null);
+      // 商品區在陳列台下方，不會和櫃檯前重疊；仍讓商品優先，Enter 不會同時觸發兩者。
+      this.setNearClerk(!near && me.y <= COUNTER_FRONT.maxY && me.x >= COUNTER_FRONT.left && me.x <= COUNTER_FRONT.right);
       const onMat = me.y >= EXIT.y && Math.abs(me.x - EXIT.x) < EXIT.rx;
       if (!onMat) this.exitArmed = true;
       else if (this.exitArmed && me.moving) this.leaveStore();
@@ -679,6 +717,18 @@ export class Game {
           y: (dr.a.y - CHAR_H - 12 - cam.y) * this.scale, width: Math.min(260, textWidth - 16),
           worldSize: 6 * this.scale, kind: 'bubble', color: '#3b2a20', background: '#fffdf6' });
       } else if (bubble) this.bubbles.delete(dr.id);
+    }
+    // 店主畫在背景裡，不在 draws；靠近櫃檯或正在說話時才顯示名牌與泡泡。
+    const clerkBubble = this.bubbles.get(CLERK_BUBBLE_ID);
+    if (this.sceneId !== "street" && (this.nearClerk || clerkBubble)) {
+      const x = (CLERK.x - cam.x) * this.scale;
+      labels.push({ id: "name-clerk", text: "店主", x, y: (CLERK.y + 7 - cam.y) * this.scale, width: 160,
+        worldSize: 5 * this.scale, kind: "name", color: "#fff", background: "#3b2a20ee" });
+      if (clerkBubble && clerkBubble.until > now) {
+        labels.push({ id: "bubble-clerk", text: clerkBubble.text, x,
+          y: (CLERK.y - CHAR_H - 12 - cam.y) * this.scale, width: Math.min(300, textWidth - 16),
+          worldSize: 6 * this.scale, kind: "bubble", color: "#3b2a20", background: "#fffdf6" });
+      } else if (clerkBubble) this.bubbles.delete(CLERK_BUBBLE_ID);
     }
     // Place all map labels together so shop signs, names and bubbles cannot overlap.
     const placed = layoutMapLabels(labels, textWidth, textHeight, (text, size, kind) => {
