@@ -53,9 +53,8 @@ export function Home() {
     <div className="page">
       <TopBar>
         <span className="spacer" />
-        <a className="btn" {...link("/shop")}>
-          店家入口
-        </a>
+        <a className="btn" {...link("/management/stores")}>管理者入口</a>
+        <a className="btn" {...link("/shop")}>店家入口</a>
       </TopBar>
       <main className="page-body">
         <form className="panel" onSubmit={create}>
