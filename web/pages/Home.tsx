@@ -3,7 +3,8 @@ import type { Point, TownLot } from "../../shared/contracts";
 import { roomGateway, storeGateway } from "../adapters/http";
 import { errorText, newRequestId } from "../api";
 import { link, navigate } from "../router";
-import { Storefront, TopBar } from "../ui";
+import { AVATAR_IDS } from "../../shared/town";
+import { AvatarPicker, Storefront, TopBar } from "../ui";
 import { TownMap } from "../TownMap";
 
 export function Home() {
@@ -22,6 +23,7 @@ export function Home() {
   }
   const [title, setTitle] = useState("今天午餐團");
   const [nickname, setNickname] = useState(() => localStorageGet("lt-nickname"));
+  const [avatar, setAvatar] = useState(AVATAR_IDS[0]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [requestId] = useState(newRequestId); // 開團重試沿用同一個 ID
@@ -39,7 +41,7 @@ export function Home() {
     setError("");
     try {
       localStorageSet("lt-nickname", nickname);
-      const r = await roomGateway.createRoom({ title, nickname, requestId, deliveryPoint: deliveryPoint ?? undefined });
+      const r = await roomGateway.createRoom({ title, nickname, avatarId: avatar, requestId, deliveryPoint: deliveryPoint ?? undefined });
       navigate(r.invitePath);
     } catch (err) {
       setError(errorText(err));
@@ -69,6 +71,7 @@ export function Home() {
             你的暱稱 <small>1 至 12 個字</small>
             <input type="text" value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} required />
           </label>
+          <AvatarPicker value={avatar} onChange={setAvatar} />
           <div className="stack delivery-picker">
             <strong>送餐地點（點地圖選擇）</strong>
             <TownMap town={town} marker={deliveryPoint} onPick={pickDelivery}
