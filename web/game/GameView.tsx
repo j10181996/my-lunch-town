@@ -6,7 +6,10 @@ import { useEffect, useRef, useState } from "react";
 import type { MoveInput, PresenceSnapshot, RoomSnapshot, SceneId, Store } from "../../shared/contracts";
 import { roomGateway } from "../adapters/http";
 import { Game } from "./game";
-import { EMOTES, type EmoteId } from "../../shared/social";
+import { shopkeeperLine } from "./shopkeeper";
+import { ownerCall } from "./owner-calls";
+import { EmoteControls } from "./EmoteControls";
+import type { EmoteId } from "../../shared/social";
 import { ACHIEVEMENTS, ACCESSORIES, collectibles, readCollection, saveCollection, type AchievementId, type Collection } from "./collection";
 
 interface Props {
@@ -30,6 +33,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const [nearFriend, setNearFriend] = useState<{ name: string; animal: boolean } | null>(null);
+  const [nearClerk, setNearClerk] = useState(false);
   const [lifeEnabled, setLifeEnabled] = useState(() => { try { return localStorage.getItem("lunch-town:life") !== "off"; } catch { return true; } });
   const [social, setSocial] = useState(snap.socialEnabled !== false);
   const [socialBusy, setSocialBusy] = useState(false);
@@ -102,6 +106,23 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
       onNearDoor: setNearDoor,
       onNearFriend: setNearFriend,
       onPet: () => unlock("friend"),
+      onNearClerk: setNearClerk,
+      clerkLine: (storeId, talk) => {
+        const s = snapRef.current;
+        const streetStore = s.catalog.stores.some((store) => store.id === storeId)
+          ? undefined : s.streetStores?.find((store) => store.id === storeId);
+        const meals = streetStore ? streetStore.meals ?? [] : s.catalog.meals.filter((m) => m.storeId === storeId);
+        return shopkeeperLine({
+          meals: meals.filter((m) => m.available),
+          ordered: s.myItems.flatMap((item) => {
+            const meal = meals.find((m) => m.id === item.mealId);
+            return meal ? [{ name: meal.name, quantity: item.quantity }] : [];
+          }),
+          roomClosed: s.room.status === "closed",
+          deadlineAt: s.catalog.stores.find((store) => store.id === storeId)?.orderDeadlineAt ?? null,
+          solo, notInRoom: !!streetStore, talk, now: Date.now(),
+        });
+      },
       onCollect: (id) => {
         const current = collectionRef.current;
         if (current.items.includes(id)) return;
@@ -150,6 +171,24 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
   useEffect(() => {
     gameRef.current?.setPresence(presence.players);
   }, [presence]);
+
+  // 截止前與收單時由團主角色喊話（散步模式沒有團主）。只畫在各自的畫面上，不經伺服器廣播。
+  const ownerCallState = useRef({ wasOpen: snap.room.status === "open", reminded: null as number | null });
+  useEffect(() => {
+    if (solo) return;
+    const check = () => {
+      const s = snapRef.current, state = ownerCallState.current;
+      const call = ownerCall(s.room, state.wasOpen, state.reminded, Date.now());
+      state.wasOpen = s.room.status === "open";
+      if (!call) return;
+      state.reminded = call.reminded;
+      const owner = s.members.find((m) => m.role === "owner");
+      if (owner) gameRef.current?.showBubble(owner.id, call.text, 5000);
+    };
+    check();
+    const timer = setInterval(check, 1000);
+    return () => clearInterval(timer);
+  }, [solo, snap.room.status, snap.room.deadlineAt]);
 
   useEffect(() => {
     if (online) gameRef.current?.announce();
@@ -202,12 +241,8 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           </section>}
         </div>
       </div>
-      {!solo && <div className="town-controls">
-        <div className="emote-bar" role="group" aria-label="小鎮表情">
-          {EMOTES.map((emote) => <button key={emote.id} className="emote-btn" title={emote.label}
-            aria-label={emote.label} disabled={!online || !social || emoteBusy || socialBusy} onClick={() => void sendEmote(emote.id)}>{emote.icon}</button>)}
-        </div>
-      </div>}
+      {!solo && <EmoteControls disabled={!online || !social || emoteBusy || socialBusy}
+        onSend={(id) => void sendEmote(id)} />}
       {notice && <div className="town-notice" role="status">{notice}</div>}
       {inShop && social && !solo && <div className="shop-company" aria-live="polite">{(() => {
         const ids = new Set(presence.players.filter((p) => p.sceneId === scene && p.memberId !== snap.me.id).map((p) => p.memberId));
@@ -216,6 +251,9 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
       })()}</div>}
       {!inShop && !nearDoor && nearFriend && <button className="btn primary friend-interact" onClick={() => gameRef.current?.interact()}>
         {nearFriend.animal ? `♥ 摸摸${nearFriend.name}` : `和${nearFriend.name}聊聊`} · Enter
+      </button>}
+      {inShop && nearClerk && !nearMeal && <button className="btn primary friend-interact" onClick={() => gameRef.current?.talkToClerk()}>
+        和店主聊聊 · Enter
       </button>}
       {inShop && (
         <button className="btn back" onClick={() => gameRef.current?.leaveStore()}>
@@ -247,7 +285,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           {canOrder ? <><span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>加一份「{nearMeal.name}」NT${nearMeal.priceTwd}</> : `「${nearMeal.name}」目前不能點餐`}
         </button>
       )}
-      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・踩出口地墊或按 Esc 回街上" : viewOnly ? "這家不在本團，只能看菜單・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
+      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : viewOnly ? "這家不在本團，只能看菜單・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・櫃檯前可和店主聊天・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
     </div>
   );
 }

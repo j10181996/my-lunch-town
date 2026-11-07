@@ -1,3 +1,4 @@
+import { fileImageStorage } from "./images/files";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -22,6 +23,7 @@ const db = openDb(join(DATA_DIR, "lunch-town.db"), process.env.SEED_FILE ?? TAIC
 let events: RoomEvents = { roomChanged() {}, bubble() {}, storeOrdersChanged() {} };
 const ctx: Ctx = {
   db,
+  images: fileImageStorage(join(DATA_DIR, "images")),
   events: {
     roomChanged: (r, v) => events.roomChanged(r, v),
     storeOrdersChanged: (s) => events.storeOrdersChanged(s),

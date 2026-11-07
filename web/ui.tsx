@@ -1,3 +1,4 @@
+import { DEFAULT_MEAL_ART } from "../shared/town";
 import type { StoreOrderStatus } from "../shared/contracts";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AVATARS } from "../shared/town";
@@ -12,7 +13,11 @@ export function money(n: number) {
 
 export function MealImg({ assetKey, alt, size = 96 }: { assetKey: string; alt: string; size?: number }) {
   const src = useMemo(() => mealImageUrl(assetKey), [assetKey]);
-  return <img className="pixel" src={src} alt={alt} width={size} height={size} />;
+  return <img className="pixel" src={src} alt={alt} width={size} height={size} onError={(event) => {
+    const image = event.currentTarget;
+    const fallback = mealImageUrl(DEFAULT_MEAL_ART);
+    if (image.getAttribute("src") !== fallback) image.src = fallback;
+  }} />;
 }
 
 export function Storefront({ styleKey, resting = false }: { styleKey: string; resting?: boolean }) {

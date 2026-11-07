@@ -71,7 +71,7 @@ try {
     await page.waitForFunction(() => !!document.querySelector('.lunch-party button:not(:disabled)'));
     console.log(`✓ ${mobile ? "手機搖桿" : "桌面鍵盤"}：街上找動物保留位置、四向移動、進店／出店／點餐導引`);
 
-    assert.equal(await page.getByRole("group", { name: "小鎮表情", exact: true }).getByRole("button").count(), 4);
+    assert.equal(await page.getByRole("group", { name: "小鎮表情", exact: true }).getByRole("button").count(), mobile ? 0 : 4);
     assert.equal(await bagToggle.locator("xpath=ancestor::*[@role='group']").count(), 0);
     assert(await bagToggle.getByText("🎒 我的背包", { exact: true }).isVisible());
     await click(quest); await click(bagToggle);

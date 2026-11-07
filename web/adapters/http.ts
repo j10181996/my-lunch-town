@@ -97,6 +97,7 @@ export const roomGateway: RoomGatewayExt = {
 };
 
 export const storeGateway: StoreAdminGateway = {
+  uploadImage: (id, pixels) => request("POST", `/api/stores/${id}/images`, { pixels }),
   setHours: (id, hours) => request<StoreProfile>("PUT", `/api/stores/${id}/hours`, hours),
   setDelivery: (id, rules) => request<StoreProfile>("PUT", `/api/stores/${id}/delivery`, rules),
   setLocation: (id, location, address) => request<StoreProfile>("PUT", `/api/stores/${id}/location`, { location, address }),

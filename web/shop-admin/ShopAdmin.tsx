@@ -1,3 +1,4 @@
+import { MealPhotoUploader } from "./MealPhotoUploader";
 import { StoreHoursSettings } from "./StoreHoursSettings";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type {
@@ -215,7 +216,7 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
 
           <StoreHoursSettings key={`hours-${profile.id}`} profile={profile} onSaved={setProfile} />
 
-          <section className="panel">
+          <section className="panel admin-menu">
             <div className="row" style={{ justifyContent: "space-between" }}>
               <h2>菜單</h2>
               <button className="btn green" onClick={() => setAdding(true)} disabled={adding || profile.meals.length >= 12}>
@@ -287,6 +288,7 @@ function MealEditor({
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState("");
   const [picking, setPicking] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
 
   useEffect(() => {
@@ -401,11 +403,14 @@ function MealEditor({
       </div>
 
       {picking && (
-        <Modal title="挑一張點陣餐點圖" onClose={() => setPicking(false)}>
+        <Modal title="挑一張點陣餐點圖" onClose={() => { if (!imageBusy) setPicking(false); }}>
+          <MealPhotoUploader storeId={storeId} onBusy={setImageBusy} onUse={(key) => { setD((old) => ({ ...old, imageAssetKey: key })); setPicking(false); }} />
+          <h4>或選擇內建點陣圖</h4>
           <div className="picker">
             {MEAL_ART.map((a) => (
               <button
                 key={a.key}
+                disabled={imageBusy}
                 aria-pressed={d.imageAssetKey === a.key}
                 onClick={() => {
                   setD({ ...d, imageAssetKey: a.key });

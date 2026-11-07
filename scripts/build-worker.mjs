@@ -6,7 +6,7 @@ mkdirSync("dist/server", { recursive: true });
 await build({
   entryPoints: ["worker/index.ts"], outfile: "dist/server/index.js",
   bundle: true, format: "esm", platform: "browser", target: "es2022",
-  minify: true, external: ["node:crypto", "./sqlite.wasm"],
+  minify: true, external: ["node:crypto", "node:zlib", "./sqlite.wasm"],
   loader: { ".bin": "binary" },
   plugins: [{ name: "worker-database", setup(build) {
     build.onLoad({ filter: /sql-wasm-browser\.js$/ }, (args) => {
