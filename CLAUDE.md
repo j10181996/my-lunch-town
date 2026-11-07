@@ -38,7 +38,7 @@ HOST=127.0.0.1 SEED_FILE=shared/catalog/seed.json DEMO_KEY= npm run dev
 
 ## 慣例
 
-- 型別契約以 `shared/contracts.ts` 為準。根目錄 `contracts.ts`、`development-spec.md`、`PLAN.md`、`docs/full-version-plan.md`、`lunch-town-handoff.html` 是歷史規格，不要修改，也不要當成目前決策。
+- 型別契約以 `shared/contracts.ts` 為準。`docs/archive/`（舊 `contracts.ts`、`development-spec.md`、`PLAN.md`、`full-version-plan.md`、`lunch-town-handoff.html` 等）是歷史規格，不要修改，也不要當成目前決策。`docs/records/` 是各功能當時的交接與驗證紀錄，現況以程式與 issue 為準。文件索引見 [docs/README.md](docs/README.md)。
 - 程式註解、UI 文字、錯誤訊息、文件與 commit message 使用繁體中文。
 - 金額一律為整數新台幣；座標對外一律正規化為 0..1（換算見 `shared/town.ts`）。
 - 像素素材全部以程式繪製（`web/art/`），不要引入外部圖檔或第三方遊戲素材。
