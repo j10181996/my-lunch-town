@@ -409,7 +409,7 @@ describe("開團指定店家", () => {
 });
 
 describe("台中店家種子資料", () => {
-  it("六家店都能開成團，名稱、價格、數量都符合店家端的驗證規則", async () => {
+  it("十四家店都能開成團，名稱、價格、數量都符合店家端的驗證規則", async () => {
     const ctx: Ctx = {
       db: openDb(":memory:", TAICHUNG_SEED),
       events: { roomChanged() {}, bubble() {}, storeOrdersChanged() {} },
@@ -423,7 +423,7 @@ describe("台中店家種子資料", () => {
     expect(res.statusCode).toBe(200);
     const { catalog } = res.json().snapshot;
     expect(catalog.isSample).toBe(false);
-    expect(catalog.stores.map((s: { lotIndex: number }) => s.lotIndex).sort()).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(catalog.stores.map((s: { lotIndex: number }) => s.lotIndex).sort((a: number, b: number) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19]);
     for (const store of catalog.stores as Array<{ id: string; name: string }>) {
       expect([...store.name].length).toBeLessThanOrEqual(12);
       const meals = catalog.meals.filter((m: { storeId: string }) => m.storeId === store.id);

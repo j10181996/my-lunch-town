@@ -4,6 +4,7 @@ import { io, type Socket } from "socket.io-client";
 import type {
   CreateStoreResult,
   MoveInput,
+  MyRoomSummary,
   PaymentInfo,
   OrderAck,
   OwnerSummary,
@@ -33,6 +34,9 @@ export interface RoomGatewayExt extends RoomGateway {
   remindUnpaid(roomId: string): Promise<RoomSnapshot>;
   confirmPayment(roomId: string, memberId: string, confirmed: boolean): Promise<RoomSnapshot>;
   getPublicInfo(roomId: string): Promise<RoomPublicInfo>;
+  setDeadline(roomId: string, deadlineAt: number | null): Promise<RoomSnapshot>;
+  expireRoom(roomId: string): Promise<RoomSnapshot>;
+  myRooms(): Promise<MyRoomSummary[]>;
   onBubble(handler: (b: PlayerBubble) => void): () => void;
 }
 
@@ -47,6 +51,9 @@ export const roomGateway: RoomGatewayExt = {
   confirmPayment: (id, memberId, confirmed) =>
     request("POST", `/api/rooms/${id}/payment/${memberId}/confirm`, { confirmed }),
   createRoom: (input) => request("POST", "/api/rooms", input),
+  setDeadline: (id, deadlineAt) => request("PUT", `/api/rooms/${id}/deadline`, { deadlineAt }),
+  expireRoom: (id) => request("POST", `/api/rooms/${id}/expire`),
+  myRooms: () => request<MyRoomSummary[]>("GET", "/api/my/rooms"),
   joinRoom: (roomId, input) => request("POST", `/api/rooms/${roomId}/join`, input),
   getSnapshot: (roomId) => request<RoomSnapshot>("GET", `/api/rooms/${roomId}/snapshot`),
   getPublicInfo: (roomId) => request<RoomPublicInfo>("GET", `/api/rooms/${roomId}/public`),

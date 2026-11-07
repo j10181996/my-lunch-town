@@ -1,4 +1,4 @@
-import { AVATARS, MEAL_ART, STYLES, STREET_SPAWN, lotDoor } from "../../shared/town";
+import { LOTS, AVATARS, MEAL_ART, STYLES, STREET_SPAWN, lotDoor } from "../../shared/town";
 import catalog from "../../shared/catalog/stores.taichung.json";
 import { tile, TILE, type TileKind } from "./tiles";
 import type { Direction, Meal, Store } from "../../shared/contracts";
@@ -158,7 +158,7 @@ const checks = checkStreet(village.colliders);
 const overview = section("05 / 完整大地圖 · 縮小總覽", "960×608 世界；西側田園、中央井邊廣場、東側店街與南屯路。");
 const result = document.createElement("p");
 result.id = "street-check-result";
-result.textContent = `${checks.passed ? "通過" : "失敗"}：${checks.reachableDoors}/12 門口可達 · ` +
+result.textContent = `${checks.passed ? "通過" : "失敗"}：${checks.reachableDoors}/${LOTS.length} 門口可達 · ` +
   `4px BFS（8×4 腳底）${checks.visited} 格 · 門前／道路／出生點／建築碰撞檢查 · ` +
   `首次 buildStreet ${buildTime.toFixed(1)}ms`;
 result.style.color = checks.passed ? "#35582e" : "#a12b24";

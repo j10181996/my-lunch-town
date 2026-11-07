@@ -2,6 +2,7 @@ import { LunchPartyPanel } from "../journey/LunchPartyPanel";
 import { Celebration } from "../journey/Celebration";
 import "../journey/journey.css";
 import { OrderDeadlineNotice } from "../ordering/OrderDeadlineNotice";
+import { DeadlineTag, RoomDeadlinePanel, deadlinePassed, useNow } from "../ordering/RoomDeadline";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { MoveInput, RoomSnapshot, SceneId } from "../../shared/contracts";
 import { describeDelivery, fulfillmentOf } from "../../shared/delivery";
@@ -114,7 +115,9 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
 
   const isOwner = snap.me.role === "owner";
   const closed = snap.room.status === "closed";
-  const canEdit = !closed && conn === "online" && !resolving;
+  const now = useNow();
+  const pastDeadline = deadlinePassed(snap, now);
+  const canEdit = !closed && !pastDeadline && conn === "online" && !resolving;
   const store = scene.startsWith("shop:") ? snap.catalog.stores.find((s) => s.sceneId === scene) : undefined;
   const online = Math.max(1, presence.players.length);
   const inviteUrl = `${location.origin}/r/${snap.room.id}`;
@@ -211,7 +214,7 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
         查看並複製訂購明細
       </button>
     ) : (
-      <button className="btn primary big" disabled={conn !== "online" || snap.totalQuantity === 0} onClick={() => setConfirmClose(true)}>
+      <button className="btn primary big" disabled={conn !== "online" || snap.totalQuantity === 0 || pastDeadline} onClick={() => setConfirmClose(true)}>
         收單並複製明細
       </button>
     ));
@@ -228,6 +231,7 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
           {conn === "online" ? `${online} 人在線` : conn === "connecting" ? "連線中…" : "連線中斷"}
         </span>
         {closed && <span className="tag" style={{ background: "var(--ink)", color: "#fff" }}>已收單</span>}
+        <DeadlineTag snap={snap} now={now} />
         <span className="spacer" />
         <span className="muted">我是 {snap.me.nickname}{isOwner ? "（揪團者）" : ""}</span>
         <button className="btn green" onClick={() => setInvite(true)}>
@@ -259,6 +263,8 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
           {conn === "offline" && <div className="banner error">連線中斷，暫停修改；恢復後會自動同步</div>}
           {resolving && <div className="banner info">正在確認先前未完成的操作…</div>}
           {closed && <div className="banner info">已收單，訂單已鎖定，不能再修改</div>}
+          <RoomDeadlinePanel snap={snap} now={now} isOwner={isOwner} online={conn === "online"}
+            onSnapshot={room.applySnapshot} say={room.say} />
           {!store && !isOwner && <PaymentCard snap={snap} busy={paymentBusy || conn !== "online"}
             onReport={() => void paymentAction(() => roomGateway.reportPayment(snap.room.id))} />}
           {closed && !store && <RoomOrderStatus snap={snap} />}

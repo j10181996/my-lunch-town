@@ -1,6 +1,8 @@
 import { MEAL_IMAGES_SCHEMA } from "./images/schema";
+import { migrateTaichungExpansion } from "./catalog/taichung-expansion";
 import { PARTY_SCHEMA } from "./rooms/party-schema";
 import { migrateStoreHours } from "./store-hours-schema";
+import { migrateDeadline } from "./rooms/deadline";
 import { SOCIAL_SCHEMA } from "./rooms/social-schema";
 import { hashKey, withWriteTx } from "./db-shared";
 import { PAYMENT_REMINDER_SCHEMA } from "./rooms/payment-schema";
@@ -137,6 +139,8 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   migratePayment(db);
   seedIfEmpty(db, seedFile);
   migrateStoreHours(db);
+  migrateTaichungExpansion(db);
+  migrateDeadline(db);
   return db;
 }
 

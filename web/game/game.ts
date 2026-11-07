@@ -1,4 +1,5 @@
 import { mealImagesVersion } from "../art/meals";
+import { layoutMapLabels, type MapLabel } from "./text-layout";
 import { animalFrame } from "../art/animals";
 import { createTownFriends, friendPose, type TownFriend, type FriendPose } from "./town-life";
 import { ACHIEVEMENTS, type Accessory, type AchievementId } from "./collection";
@@ -590,8 +591,9 @@ export class Game {
     // 放大到顯示畫布
     const d = this.dctx;
     const k = this.scale * this.dpr;
-    // Floors are CSS pixels, independent of world scale and devicePixelRatio.
-    const readable = (worldSize: number, minimum = 14) => Math.max(worldSize * k, minimum * this.dpr);
+    const textWidth = this.display.width / this.dpr;
+    const textHeight = this.display.height / this.dpr;
+    const labels: MapLabel[] = [];
     const PIXEL = '"Cubic 11","Noto Sans TC",sans-serif';
     d.setTransform(1, 0, 0, 1, 0, 0);
     d.imageSmoothingEnabled = false;
@@ -612,28 +614,17 @@ export class Game {
     // 高解析度文字：招牌、名牌、泡泡
     d.textAlign = "center";
     d.textBaseline = "middle";
-    for (const s of this.art?.signs ?? []) {
-      const size = readable(s.size, 16);
-      const width = Math.min(Math.max(s.w * k, 96 * this.dpr), this.display.width - 16 * this.dpr);
-      const sign = fitText(d, s.text, width, size, size, "400", PIXEL);
-      const center = Math.max(cam.x * k + width / 2 + 4 * this.dpr,
-        Math.min((s.x + s.w / 2) * k, cam.x * k + this.display.width - width / 2 - 4 * this.dpr));
-      d.font = sign.font;
-      d.lineWidth = 3 * this.dpr;
-      d.strokeStyle = "#fffaf0";
-      d.strokeText(sign.text, center, s.y * k);
-      d.fillStyle = s.color;
-      d.fillText(sign.text, center, s.y * k);
+    for (const [index, sign] of (this.art?.signs ?? []).entries()) {
+      labels.push({ id: `sign-${index}`, text: sign.text,
+        x: (sign.x + sign.w / 2 - cam.x) * this.scale, y: (sign.y - cam.y) * this.scale,
+        worldSize: sign.size * this.scale, width: Math.max(sign.w * this.scale, Math.min(160, textWidth * .3)),
+        kind: sign.kind ?? 'store', color: sign.color });
     }
     if (this.sceneId === "street" && this.deliveryPoint) {
-      const x = this.deliveryPoint.x * STREET_W;
-      const y = this.deliveryPoint.y * STREET_H;
-      d.font = `400 ${readable(8)}px ${PIXEL}`;
-      d.lineWidth = 2 * k;
-      d.strokeStyle = "#fffaf0";
-      d.fillStyle = "#3b2a20";
-      d.strokeText("送餐地點", x * k, (y - 21) * k);
-      d.fillText("送餐地點", x * k, (y - 21) * k);
+      labels.push({ id: 'delivery', text: '送餐地點',
+        x: (this.deliveryPoint.x * STREET_W - cam.x) * this.scale,
+        y: (this.deliveryPoint.y * STREET_H - 21 - cam.y) * this.scale,
+        worldSize: 8 * this.scale, width: 140, kind: 'info', color: '#3b2a20', background: '#fffaf0' });
     }
     const FONT = `"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif`;
     // 陳列台商品：前板兩行（品名、價格），字太長先縮小、再截斷
@@ -664,18 +655,9 @@ export class Game {
       const p = this.nearProduct;
       const meal = this.meals.find((m) => m.id === p.mealId);
       if (meal) {
-        const label = `${meal.name}  NT$${meal.priceTwd}`;
-        d.font = `700 ${readable(6, 16)}px ${FONT}`;
-        const w = d.measureText(label).width + 8 * k;
-        const h = Math.max(10 * k, 24 * this.dpr);
-        const top = (p.y - 20) * k;
-        const left = Math.min(Math.max(p.x * k - w / 2, 2 * k), (this.world.w - 2) * k - w);
-        d.fillStyle = "#3b2a20";
-        roundRect(d, left - k * 0.6, top - k * 0.6, w + k * 1.2, h + k * 1.2, 3 * k);
-        d.fillStyle = "#fffdf6";
-        roundRect(d, left, top, w, h, 3 * k);
-        d.fillStyle = "#3b2a20";
-        d.fillText(label, left + w / 2, top + h / 2);
+        labels.push({ id: 'product-info', text: `${meal.name}  NT$${meal.priceTwd}`,
+          x: (p.x - cam.x) * this.scale, y: (p.y - 20 - cam.y) * this.scale,
+          worldSize: 6 * this.scale, width: textWidth - 16, kind: 'info', color: '#3b2a20', background: '#fffdf6' });
       }
     }
     for (const p of this.art?.products ?? []) {
@@ -691,39 +673,39 @@ export class Game {
     }
     const now = performance.now();
     for (const dr of draws) {
-      const cx = dr.a.x * k;
       const friendNear = dr.friend?.id === this.nearFriend?.id;
       if (dr.friend && !friendNear && !this.bubbles.has(dr.id)) continue;
-      const name = `${dr.badge ? ACHIEVEMENTS.find((a) => a.id === dr.badge)?.icon ?? "" : ""}${dr.name}`;
-      const top = (dr.a.y + 2) * k;
-      d.font = `400 ${readable(5)}px ${PIXEL}`;
-      const nameHeight = Math.max(7 * k, 20 * this.dpr);
-      const w = d.measureText(name).width + 8 * this.dpr;
-      d.fillStyle = dr.self ? "#d9483ecc" : "#3b2a20bb";
-      roundRect(d, cx - w / 2, top, w, nameHeight, 2 * this.dpr);
-      d.fillStyle = "#fff";
-      d.fillText(name, cx, top + nameHeight / 2);
-
-      const bub = this.bubbles.get(dr.id);
-      if (bub && bub.until > now) {
-        const by = (dr.a.y - CHAR_H - 4) * k;
-        d.font = `400 ${readable(6)}px ${PIXEL}`;
-        const bw = d.measureText(bub.text).width + 6 * k;
-        const bh = Math.max(10 * k, 22 * this.dpr);
-        d.fillStyle = "#3b2a20";
-        roundRect(d, cx - bw / 2 - k * 0.6, by - bh - k * 0.6, bw + k * 1.2, bh + k * 1.2, 3 * k);
-        d.fillStyle = "#fffdf6";
-        roundRect(d, cx - bw / 2, by - bh, bw, bh, 3 * k);
-        d.beginPath();
-        d.moveTo(cx - 2 * k, by);
-        d.lineTo(cx + 2 * k, by);
-        d.lineTo(cx, by + 3 * k);
-        d.fill();
-        d.fillStyle = "#3b2a20";
-        d.fillText(bub.text, cx, by - bh / 2);
-      } else if (bub) {
-        this.bubbles.delete(dr.id);
+      const x = (dr.a.x - cam.x) * this.scale;
+      labels.push({ id: `name-${dr.id}`,
+        text: `${dr.badge ? ACHIEVEMENTS.find((a) => a.id === dr.badge)?.icon ?? "" : ""}${dr.name}`,
+        x, y: (dr.a.y + 7 - cam.y) * this.scale, width: 160, worldSize: 5 * this.scale,
+        kind: 'name', priority: dr.self ? 105 : 100, color: '#fff', background: dr.self ? '#d9483eee' : '#3b2a20ee' });
+      const bubble = this.bubbles.get(dr.id);
+      if (bubble && bubble.until > now) {
+        labels.push({ id: `bubble-${dr.id}`, text: bubble.text, x,
+          y: (dr.a.y - CHAR_H - 12 - cam.y) * this.scale, width: Math.min(260, textWidth - 16),
+          worldSize: 6 * this.scale, kind: 'bubble', color: '#3b2a20', background: '#fffdf6' });
+      } else if (bubble) this.bubbles.delete(dr.id);
+    }
+    // Place all map labels together so shop signs, names and bubbles cannot overlap.
+    const placed = layoutMapLabels(labels, textWidth, textHeight, (text, size, kind) => {
+      d.font = `400 ${size * this.dpr}px ${kind === "info" ? FONT : PIXEL}`;
+      return d.measureText(text).width / this.dpr;
+    });
+    d.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    for (const label of placed) {
+      const x = label.left + label.boxWidth / 2;
+      const y = label.top + label.boxHeight / 2;
+      d.font = `400 ${label.fontSize}px ${label.kind === "info" ? FONT : PIXEL}`;
+      if (label.background) {
+        d.fillStyle = label.background;
+        roundRect(d, label.left, label.top, label.boxWidth, label.boxHeight, 3);
+      } else {
+        d.lineWidth = 3; d.strokeStyle = '#fffaf0';
+        d.strokeText(label.text, x, y);
       }
+      d.fillStyle = label.color;
+      d.fillText(label.text, x, y);
     }
 
     d.setTransform(1, 0, 0, 1, 0, 0);

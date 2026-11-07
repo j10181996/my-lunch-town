@@ -170,6 +170,7 @@ export interface RoomGateway {
 
 /** Store 補充欄位（宣告合併，選填）：店面風格與街區地段。door 由地段推得。 */
 export interface Store {
+  address?: string;
   styleKey?: string;
   lotIndex?: number;
 }
@@ -186,7 +187,7 @@ export interface RoomPublicInfo {
 
 export interface TownLot {
   index: number;
-  store: { id: Id; name: string; styleKey: string; status: StoreStatus } | null;
+  store: { id: Id; name: string; styleKey: string; status: StoreStatus; address?: string } | null;
 }
 
 export interface AdminMeal {
@@ -200,6 +201,7 @@ export interface AdminMeal {
 }
 
 export interface StoreProfile {
+  address?: string;
   id: Id;
   name: string;
   styleKey: string;
@@ -394,3 +396,24 @@ export interface StoreAdminGateway {
 }
 /** 散步模式（#44）：即時菜單中目前不收單的店，街景畫成休息中。 */
 export interface Store { resting?: boolean }
+
+/** 截止時間（#15）：毫秒 epoch；null 表示不設截止。時間到由伺服器自動收單。 */
+export interface Room { deadlineAt?: number | null }
+export interface CreateRoomInput { deadlineAt?: number | null }
+
+/** 我的團歷史（#17）：首頁列出我開過與參加過的團。只含自己的金額。 */
+export interface MyRoomSummary {
+  id: Id;
+  title: string;
+  status: RoomStatus;
+  role: Role;
+  createdAt: number;
+  closedAt: number | null;
+  memberCount: number;
+  myTotalTwd: number;
+  /** 當時的暱稱與角色；「再揪一次」沿用。 */
+  nickname: string;
+  avatarId: string;
+  deliveryPoint: Point | null;
+  stores: Array<{ id: Id; name: string }>;
+}

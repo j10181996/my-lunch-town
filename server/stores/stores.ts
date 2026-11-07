@@ -16,6 +16,7 @@ import { AppError, err, withWriteTx, type Db } from "../db";
 import { hashKey, intInRange, oneOf, randomId, requestId as checkRequestId, text } from "../util";
 
 interface StoreRow {
+  address: string | null;
   id: string;
   name: string;
   style_key: string;
@@ -35,7 +36,7 @@ export function getTown(db: Db): TownLot[] {
     const s = rows.find((r) => r.lot_index === lot.index);
     return {
       index: lot.index,
-      store: s ? { id: s.id, name: s.name, styleKey: s.style_key, status: s.status === "open" && !storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null).open ? "resting" : s.status } : null,
+      store: s ? { address: s.address ?? undefined, id: s.id, name: s.name, styleKey: s.style_key, status: s.status === "open" && !storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null).open ? "resting" : s.status } : null,
     };
   });
 }
@@ -51,6 +52,7 @@ function loadProfile(db: Db, storeId: string): StoreProfile {
     .get(storeId) as { n: number };
   return {
     id: s.id,
+    address: s.address ?? undefined,
     name: s.name,
     styleKey: s.style_key,
     lotIndex: s.lot_index,

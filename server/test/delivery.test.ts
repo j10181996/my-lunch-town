@@ -141,12 +141,13 @@ it("舊 schema 增欄與種子回填只做一次，保留舊資料與既有訂�
       expect(store).toMatchObject(before.store);
       expect(JSON.parse(store.delivery_json as string)).toEqual(seeded.delivery);
       expect(db.prepare("SELECT * FROM rooms").get())
-        .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null });
+        .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null, deadline_at: null });
       expect(db.prepare("SELECT * FROM room_stores").get())
         .toEqual({ ...before.frozen, delivery_json: null, order_deadline_at: null });
       expect(db.prepare("SELECT * FROM store_orders").get())
         .toEqual({ ...before.order, fulfillment: "pickup", distance_km: null, delivery_min_twd: null });
-      expect(db.prepare("SELECT COUNT(*) AS n FROM stores").get()).toMatchObject({ n: 1 });
+      // 舊店完整保留，另由台中種子升級補入本批八家。
+      expect(db.prepare("SELECT COUNT(*) AS n FROM stores").get()).toMatchObject({ n: 9 });
       db.exec("UPDATE stores SET delivery_json = NULL");
     } finally { db.close(); }
     const reopened = openDb(path, TAICHUNG_SEED);
