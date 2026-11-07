@@ -6,12 +6,17 @@ import { hashKey, withWriteTx } from "../db-shared";
 const ORIGINAL_IDS = ["store-chingfan", "store-shanliang", "store-yiriyiwei", "store-potato", "store-haritts", "store-zhuangzhuang"];
 export const EXPANSION_IDS = ["store-youfan", "store-picnicday", "store-zhuyi", "store-musi", "store-steal-flavor", "store-roasted-time", "store-healthy-daily", "store-meetzen"];
 
+/** stores.address 與 catalog_imports；可重複執行。舊庫升級（schema/legacy.ts）與下方匯入共用。 */
+export function migrateTaichungExpansionSchema(db: Pick<Db, "prepare" | "exec">) {
+  const columns = db.prepare("PRAGMA table_info(stores)").all() as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "address")) db.exec("ALTER TABLE stores ADD COLUMN address TEXT");
+  db.exec("CREATE TABLE IF NOT EXISTS catalog_imports (store_id TEXT PRIMARY KEY, version TEXT NOT NULL)");
+}
+
 /** 保留現有店家、認領、菜單與團快照；僅新增本批尚未匯入的種子店。 */
 export function migrateTaichungExpansion(db: Db) {
   withWriteTx(db, () => {
-    const columns = db.prepare("PRAGMA table_info(stores)").all() as Array<{ name: string }>;
-    if (!columns.some((c) => c.name === "address")) db.exec("ALTER TABLE stores ADD COLUMN address TEXT");
-    db.exec("CREATE TABLE IF NOT EXISTS catalog_imports (store_id TEXT PRIMARY KEY, version TEXT NOT NULL)");
+    migrateTaichungExpansionSchema(db);
     // 虛構種子及純自建店家環境不混入真實店家。
     if (!ORIGINAL_IDS.some((id) => db.prepare("SELECT 1 FROM stores WHERE id = ? AND is_sample = 0").get(id))) return;
     for (const store of seed.stores) {

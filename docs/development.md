@@ -87,7 +87,7 @@ Worker 每個請求都把整個 image 載入 sql.js，執行領域函式後匯�
 
 點餐明細的鍵是「餐點 + 選項組合 + 備註」：`order_items` 主鍵為 `(room_id, member_id, meal_id, option_key, note)`，單價 = 餐點價格 + 選項加價，寫入時固定。店家彙總、匯出與店家訂單快照依「餐點 + 選項」分列，備註只出現在每人明細。每人每道餐點 20 份的上限跨所有組合合計。
 
-`OrderDeltaInput` 的 `choiceIds`、`note` 都沒帶（或為空）時，去重 digest 與回應都維持升級前的格式，讓舊請求重送仍相符。舊庫由 `server/orders/options-schema.ts` 的 `migrateMealOptions` 重建 `order_items`，Node 與 Worker 都會執行。
+`OrderDeltaInput` 的 `choiceIds`、`note` 都沒帶（或為空）時，去重 digest 與回應都維持升級前的格式，讓舊請求重送仍相符。導入版本化之前的舊庫由 `server/orders/options-schema.ts` 的 `migrateMealOptions` 重建 `order_items`（經 `upgradeLegacy` 執行）。
 
 ### 錯誤格式
 
@@ -126,12 +126,15 @@ NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；�
 
 ### 新增或修改業務表欄位
 
-業務表的 schema 在 `server/db.ts` 的 `SCHEMA` 字串與 `migrate*` 函式，不在 Drizzle。Drizzle 的 `db/schema.ts` 只管 D1 外層的 `app_state` 與 `live_presence`。
+業務表的 schema 由 `server/schema/` 管理，不在 Drizzle。Drizzle 的 `db/schema.ts` 只管 D1 外層的 `app_state` 與 `live_presence`。
 
-Node 的 `openDb` 每次啟動都會跑 `migrateDelivery`、`migratePayment`，但 Worker 的 `openSnapshot` 不會；它只套用 `SOCIAL_SCHEMA`、`PARTY_SCHEMA`、`migrateStoreHours`、`migrateTaichungExpansion`、`migrateDeadline`、`migrateDeliveryAddress` 與 `migrateGeoLocation`。已部署的 D1 image 是舊版建立的，不會自動得到新欄位；`worker/seed.bin` 只在 D1 尚未初始化時使用。所以：
-
-- 新表或新欄位要寫成可重複執行的遷移（`CREATE TABLE IF NOT EXISTS`、先查 `PRAGMA table_info` 再 `ALTER TABLE`），並確保 `worker/db.ts` 的 `openSnapshot` 也會套用。做法是把遷移獨立成一個檔案，由 `openDb` 與 `openSnapshot` 都呼叫。新表可參考 `server/rooms/social-schema.ts`（一份 `CREATE TABLE IF NOT EXISTS` 常數）；新欄位可參考 `server/store-hours-schema.ts` 的 `migrateStoreHours`（先查 `PRAGMA table_info`，缺欄才在交易內 `ALTER TABLE`）。Worker 下一筆成功寫入時，升級後的 image 會隨交易一起寫回 D1。
-- 遷移不得覆蓋或回填既有資料，除非有明確需求。
+- `server/schema/migrate.ts` 的 `MIGRATIONS` 是所有 schema 變更的唯一清單。`migrate()` 依序套用尚未記錄在 `schema_migrations` 的遷移，每筆各自一個交易，失敗整筆回滾、不記錄，下次開啟時重試。Node 的 `openDb` 與 Worker 的 `openSnapshot` 都只呼叫它，不必兩邊各自登記。
+- `0001_baseline`（`server/schema/baseline.ts`）是導入版本化時的完整 schema，只用於全新的資料庫。
+- 沒有 `schema_migrations` 但已有業務表的舊庫（Node 的 `data/`、已部署的 D1 image），先由 `server/schema/legacy.ts` 的 `upgradeLegacy` 依原本順序跑完舊的增欄遷移，補齊到基線，再把基線記為已套用。`migrations.test.ts` 逐表比對基線與舊庫升級的結果。基線與舊庫升級都已凍結，不要修改。
+- 新增表或欄位：在 `MIGRATIONS` 最後加一筆 `{ name: "000N_描述", up(db) { ... } }`，用一般的 `CREATE TABLE`、`ALTER TABLE` 即可，不需要 `IF NOT EXISTS` 或先查 `PRAGMA table_info`。不要修改已發布的項目；要改就再加一筆。
+- `up` 只能用 `db.exec` 與 `db.prepare` 的 `get`／`all`／`run`，不能讀檔（Worker 沒有檔案系統）。
+- Worker 下一筆成功寫入時，升級後的 image 會隨交易一起寫回 D1；GET 請求不寫回，所以在那之前每次讀取都會在記憶體裡重新升級一次。
+- 遷移不得覆蓋或回填既有資料，除非有明確需求。種子匯入（`seedIfEmpty`、`migrateTaichungExpansion`、`backfillSeedLocations`）屬於資料匯入，不放進 `MIGRATIONS`，在 `migrate()` 之後呼叫。
 
 ### 新增即時事件
 
@@ -155,6 +158,6 @@ Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realti
 | `scripts/smoke-bag-quests.mjs` | 任務導引後鍵盤／真觸控移動、背包獨立入口與窄版捲動 | 開發伺服器 + Chrome |
 | `scripts/smoke-mobile.mjs` | 手機尺寸與真觸控事件：搖桿走路、觸控點餐、面板收合 | 開發伺服器 + Chrome |
 
-`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`regulars.test.ts` 是常客紀錄、每日試吃與成就徽章清單；`likes.test.ts` 是給店家按讚的權限、去重與店家後台統計；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限；`meal-options.test.ts` 是餐點選項與備註的設定、計價、匯出、去重、並發與遷移。
+`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`regulars.test.ts` 是常客紀錄、每日試吃與成就徽章清單；`likes.test.ts` 是給店家按讚的權限、去重與店家後台統計；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限；`meal-options.test.ts` 是餐點選項與備註的設定、計價、匯出、去重、並發與遷移；`migrations.test.ts` 是版本化遷移：基線與舊庫升級一致、只套用一次、失敗回滾。
 
 瀏覽器與 Sites 腳本只允許對 `localhost`／`127.0.0.1` 執行，並會寫入測試資料，請用獨立的 `DATA_DIR` 或本機 D1。

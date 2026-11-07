@@ -1,13 +1,7 @@
-import { MEAL_IMAGES_SCHEMA } from "../server/images/schema";
+import taichung from "../shared/catalog/stores.taichung.json";
 import { migrateTaichungExpansion } from "../server/catalog/taichung-expansion";
-import { PARTY_SCHEMA } from "../server/rooms/party-schema";
-import { migrateStoreHours } from "../server/store-hours-schema";
-import { migrateDeliveryAddress } from "../server/delivery-address-schema";
-import { backfillSeedLocations, migrateGeoLocation } from "../server/geo-schema";
-import { migrateDeadline } from "../server/rooms/deadline";
-import { SOCIAL_SCHEMA } from "../server/rooms/social-schema";
-import { migrateMealOptions } from "../server/orders/options-schema";
-import { STORE_LIKES_SCHEMA } from "../server/stores/likes-schema";
+import { backfillSeedLocations } from "../server/geo-schema";
+import { migrate } from "../server/schema/migrate";
 import initSqlJs, { type Database, type SqlValue } from "sql.js/dist/sql-wasm-browser.js";
 import sqliteWasm from "./sqlite.wasm";
 import seedBytes from "./seed.bin";
@@ -28,10 +22,6 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
   const SQL = await sqlite;
   const raw = new SQL.Database(bytes ? new Uint8Array(bytes) : seedBytes);
   raw.exec("PRAGMA foreign_keys = ON");
-  raw.exec(SOCIAL_SCHEMA);
-  raw.exec(MEAL_IMAGES_SCHEMA);
-  raw.exec(PARTY_SCHEMA);
-  raw.exec(STORE_LIKES_SCHEMA);
   // Match node:sqlite's small synchronous surface used by the domain modules.
   // Every statement is freed, including reads returning no rows.
   const query = (sql: string, args: SqlValue[], all: boolean) => {
@@ -61,12 +51,10 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
       };
     },
   } as unknown as Db;
-  migrateStoreHours(db);
+  // 與 Node 的 openDb 走同一個遷移入口；舊 image 會先補齊到基線（含外送與收款欄位）。
+  // seed.bin 由台中種子建立，舊 image 補外送欄位時也以它回填。
+  migrate(db, { legacySeedStores: () => taichung.stores });
   migrateTaichungExpansion(db);
-  migrateDeadline(db);
-  migrateDeliveryAddress(db);
-  migrateMealOptions(db);
-  migrateGeoLocation(db);
   backfillSeedLocations(db);
   return { db, raw };
 }
