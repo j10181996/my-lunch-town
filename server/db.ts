@@ -2,7 +2,7 @@ import { migrateTaichungExpansion } from "./catalog/taichung-expansion";
 import { PARTY_SCHEMA } from "./rooms/party-schema";
 import { migrateStoreHours } from "./store-hours-schema";
 import { migrateDeliveryAddress } from "./delivery-address-schema";
-import { migrateGeoLocation } from "./geo-schema";
+import { backfillSeedLocations, migrateGeoLocation } from "./geo-schema";
 import { migrateDeadline } from "./rooms/deadline";
 import { SOCIAL_SCHEMA } from "./rooms/social-schema";
 import { hashKey, withWriteTx } from "./db-shared";
@@ -143,6 +143,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   migrateTaichungExpansion(db);
   migrateDeadline(db);
   migrateDeliveryAddress(db);
+  backfillSeedLocations(db); // 須在店家匯入之後
   return db;
 }
 

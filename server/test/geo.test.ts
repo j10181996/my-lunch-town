@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import type { DeliveryRules } from "../../shared/contracts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import taichung from "../../shared/catalog/stores.taichung.json";
+import type { DeliveryRules, GeoPoint } from "../../shared/contracts";
+import { openDb, SAMPLE_SEED, TAICHUNG_SEED } from "../db";
 import { evaluateStoreDelivery, storeDistanceKm } from "../../shared/delivery";
 import { haversineKm, mapsUrl, parseGeoText, validateGeoPoint } from "../../shared/geo";
 import { migrateGeoLocation } from "../geo-schema";
@@ -59,6 +64,53 @@ describe("依團與店家位置判斷外送", () => {
     expect(storeDistanceKm({ deliveryLocation: here }, { ...store, location: null })).toBeNull();
     expect(evaluateStoreDelivery({ deliveryLocation: here }, { ...store, location: { lat: 24.02, lng: 120 } }, 100).kind)
       .toBe("out-of-range");
+  });
+});
+
+describe("台中店家位置回填", () => {
+  const seeded = new Map((taichung.stores as Array<{ id: string; location?: GeoPoint }>).map((s) => [s.id, s.location]));
+  const locations = (db: DatabaseSync) => new Map((db.prepare("SELECT id, lat, lng FROM stores").all() as Array<{ id: string; lat: number | null; lng: number | null }>)
+    .map((r) => [r.id, r.lat == null ? null : { lat: r.lat, lng: r.lng! }]));
+
+  it("種子每家都有台中範圍內的座標", () => {
+    expect(seeded.size).toBe(14);
+    for (const [id, p] of seeded) {
+      expect(p, id).toBeDefined();
+      expect(p!.lat).toBeGreaterThan(24.1);
+      expect(p!.lat).toBeLessThan(24.2);
+      expect(p!.lng).toBeGreaterThan(120.6);
+      expect(p!.lng).toBeLessThan(120.7);
+    }
+  });
+
+  it("新庫與升級前的舊庫都補上位置；只補一次，店家清除後不會被填回", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lt-geo-"));
+    try {
+      const path = join(dir, "db.sqlite");
+      const db = openDb(path, TAICHUNG_SEED);
+      try {
+        const got = locations(db);
+        for (const [id, p] of seeded) expect(got.get(id), id).toEqual(p);
+        db.prepare("UPDATE stores SET lat = NULL, lng = NULL WHERE id = 'store-chingfan'").run();
+        // 模擬升級前的庫：清掉回填紀錄與另一家的位置
+        db.prepare("UPDATE stores SET lat = NULL, lng = NULL WHERE id = 'store-musi'").run();
+        db.prepare("DELETE FROM location_imports WHERE store_id = 'store-musi'").run();
+      } finally { db.close(); }
+      const reopened = openDb(path, TAICHUNG_SEED);
+      try {
+        const got = locations(reopened);
+        expect(got.get("store-chingfan")).toBeNull();
+        expect(got.get("store-musi")).toEqual(seeded.get("store-musi"));
+      } finally { reopened.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("虛構種子不混入真實店家位置", () => {
+    const db = openDb(":memory:", SAMPLE_SEED);
+    try {
+      expect([...locations(db).keys()].some((id) => seeded.has(id))).toBe(false);
+      expect(db.prepare("SELECT COUNT(*) AS n FROM location_imports").get()).toEqual({ n: 0 });
+    } finally { db.close(); }
   });
 });
 
