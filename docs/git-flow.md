@@ -93,7 +93,7 @@ Closes #42
 | PR 完成 issue 的全部範圍 | `Closes #N` | 合併後自動關閉 |
 | 只完成一部分（例如黑客松展示子集） | `Refs #N` | 保持開啟、保留 `process`，在 PR 或交接文件說明還缺什麼 |
 
-PR 若涉及資料庫 schema、新的 D1 binding 或 Worker 改動，描述中要特別註明，因為合併後 Sites 需要重新建置部署（見下方）。範圍較大、需要交接的工作另寫交接文件放在 `docs/`，例如 [M4 黑客松展示交接](m4-demo-handoff.md)。
+PR 若涉及資料庫 schema、新的 D1 binding 或 Worker 改動，描述中要特別註明，因為合併後 Sites 需要重新建置部署（見下方）。範圍較大、需要交接的工作另寫交接文件放在 `docs/records/`，例如 [M4 黑客松展示交接](records/m4-demo-handoff.md)；地端環境紀錄放 `docs/records/local/`。新增文件後在 [文件索引](README.md) 登記。
 
 ### 6. 合併
 
@@ -119,4 +119,4 @@ git branch -d feature/issue-21-store-invites
 - 不 force push 別人的分支，也不 force push `main`。
 - 一個 PR 對應一個 issue（或一組緊密相關的 issue），不要順手夾帶無關改動。
 - PR 描述的驗證段落要誠實：沒跑的檢查要寫出來。
-- 歷史規格檔（`development-spec.md`、`PLAN.md` 等）不在一般 PR 中修改。
+- 歷史規格檔（`docs/archive/` 下的 `development-spec.md`、`PLAN.md` 等）不在一般 PR 中修改。

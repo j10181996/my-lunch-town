@@ -76,9 +76,10 @@ node scripts/smoke.mjs http://localhost:3000 smoke-shots
 
 - [開發指南](docs/development.md)：架構分層、Node／Sites 共用方式與常見修改步驟
 - [Git 流程](docs/git-flow.md)：分支命名、commit、PR 描述與合併方式
-- [來源基線與驗證紀錄](docs/baseline.md)
-- `development-spec.md`、`PLAN.md`、`docs/full-version-plan.md` 與 `lunch-town-handoff.html` 保留來源版本，作為歷史規格與視覺參考，其中舊架構或帳號方案不代表目前決策。
-- `assets/` 與 `web/art/` 保留視覺素材。使用者已於 2026-11-07 確認程式碼、素材及真實店家菜單可公開；目前未指定開源授權條款。
+- [文件索引](docs/README.md)：目前有效的指南、功能交接與驗證紀錄（`docs/records/`）、歷史規格（`docs/archive/`）
+- [來源基線與驗證紀錄](docs/records/baseline.md)
+- `docs/archive/` 保留來源版本的規格、規劃書、提案範本與 `lunch-town-handoff.html`，作為歷史規格與視覺參考，其中舊架構或帳號方案不代表目前決策。
+- `docs/archive/assets/`（原始規格的參考圖）與 `web/art/` 保留視覺素材。使用者已於 2026-11-07 確認程式碼、素材及真實店家菜單可公開；目前未指定開源授權條款。
 
 ### M3：營業時間與接單截止（#22）
 
