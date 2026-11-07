@@ -1,7 +1,6 @@
 import type { MoveInput, PlayerPresence } from "../shared/contracts";
 import type { Ctx } from "../server/context";
 import { isBadgeId } from "../shared/social";
-import { PAYMENT_REMINDER_SCHEMA } from "../server/rooms/payment-schema";
 import { requireMember } from "../server/rooms/rooms";
 import { closeExpiredRooms } from "../server/rooms/deadline";
 import { requireOwner } from "../server/stores/stores";
@@ -159,8 +158,6 @@ export default {
         const stored = await load(env);
         const { db, raw } = await openSnapshot(stored.bytes);
         try {
-          // 舊快照沒有後來新增的資料表時在記憶體補建，寫入時一併保存。
-          db.exec(PAYMENT_REMINDER_SCHEMA);
           db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").run(sid, Date.now());
           const ctx: Ctx = { db, images: env.BUCKET ? {
             async put(key, bytes) { await env.BUCKET!.put(key, bytes, { httpMetadata: { contentType: "image/png" } }); },
