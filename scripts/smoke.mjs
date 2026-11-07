@@ -53,6 +53,7 @@ const deliveryBox = await deliveryMap.boundingBox();
 if (!deliveryBox) throw new Error("開團地圖沒有顯示");
 await deliveryMap.click({ position: { x: deliveryBox.width * 0.55, y: deliveryBox.height * 0.59 } });
 await owner.getByText("已選送餐地點，收單時依各店門檻決定外送或自取。").waitFor();
+await owner.getByRole("button", { name: "全選營業中的店" }).click();
 await owner.getByRole("button", { name: "開團並取得邀請網址" }).click();
 await owner.waitForURL(/\/r\//);
 await owner.getByText("人在線").waitFor();
