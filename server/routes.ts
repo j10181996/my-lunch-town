@@ -22,7 +22,7 @@ import {
 
 import { listStoreOrders, updateStoreOrderStatus } from "./orders/storeOrders";
 
-import { confirmPayment, reportPayment, sendPaymentInfo, setPaymentInfo } from "./rooms/payments";
+import { confirmPayment, remindUnpaid, reportPayment, sendPaymentInfo, setPaymentInfo } from "./rooms/payments";
 
 export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string) {
   const { db } = ctx;
@@ -57,6 +57,9 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   );
   app.post<{ Params: P }>("/api/rooms/:id/payment-info/send", async (req) =>
     sendPaymentInfo(ctx, req.sid, req.params.id),
+  );
+  app.post<{ Params: P }>("/api/rooms/:id/payment/remind", async (req) =>
+    remindUnpaid(ctx, req.sid, req.params.id),
   );
   app.post<{ Params: P }>("/api/rooms/:id/payment/report", async (req) =>
     reportPayment(ctx, req.sid, req.params.id),

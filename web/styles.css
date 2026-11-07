@@ -227,6 +227,8 @@ label.field small { font-weight: 400; color: var(--sub); }
 .payment-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .payment-person { justify-content: space-between; margin: 8px 0; }
 .payment-send { white-space: normal; }
+.payment-qr-box { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.payment-qr { width: 168px; height: 168px; border: 2px solid var(--line); border-radius: 8px; background: #fff; }
 
 .hours-settings fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .hours-day { border-top: 1px solid var(--ink); padding-top: 8px; }

@@ -5,6 +5,15 @@ import type { Ctx } from "../context";
 import { AppError, err, withWriteTx, type Db } from "../db";
 import { buildSnapshot, bumpRevision, listMembers, loadItems, requireMember } from "./rooms";
 
+/** 提醒冷卻時間，避免團主連按造成騷擾。 */
+export const PAYMENT_REMIND_COOLDOWN_MS = 5 * 60_000;
+
+export function paymentRemindedAt(db: Db, roomId: string): number | null {
+  const row = db.prepare("SELECT reminded_at FROM payment_reminders WHERE room_id = ?").get(roomId) as
+    { reminded_at: number } | undefined;
+  return row?.reminded_at ?? null;
+}
+
 interface PaymentRow {
   status: "reported" | "confirmed";
   reported_at: number | null;
@@ -56,6 +65,26 @@ export function sendPaymentInfo(ctx: Ctx, sessionId: string, roomId: string) {
     if (!room.payment_json) throw err.invalid("請先設定收款資料");
     if (room.payment_sent_at !== null) return false;
     ctx.db.prepare("UPDATE rooms SET payment_sent_at = ? WHERE id = ?").run(Date.now(), roomId);
+    return true;
+  });
+}
+/** 團主提醒仍未付款的團員；已回報或已確認的人不會收到提醒。 */
+export function remindUnpaid(ctx: Ctx, sessionId: string, roomId: string, now = Date.now()) {
+  return mutate(ctx, sessionId, roomId, () => {
+    const { room } = requireOwner(ctx.db, roomId, sessionId);
+    if (room.status !== "closed") throw err.invalid("請先收單再提醒付款");
+    if (room.payment_sent_at === null) throw err.invalid("請先傳送收款資訊");
+    const unpaid = listMembers(ctx.db, roomId).filter((m) => m.role !== "owner"
+      && sumItems(loadItems(ctx.db, roomId, m.id)).totalTwd > 0
+      && paymentStatus(ctx.db, roomId, m.id) === "unpaid");
+    if (unpaid.length === 0) throw err.invalid("目前沒有未付款的團員");
+    const last = paymentRemindedAt(ctx.db, roomId);
+    if (last !== null && now - last < PAYMENT_REMIND_COOLDOWN_MS) {
+      const minutes = Math.ceil((PAYMENT_REMIND_COOLDOWN_MS - (now - last)) / 60_000);
+      throw err.invalid(`剛提醒過，請 ${minutes} 分鐘後再提醒`);
+    }
+    ctx.db.prepare(`INSERT INTO payment_reminders (room_id, reminded_at) VALUES (?, ?)
+      ON CONFLICT(room_id) DO UPDATE SET reminded_at = excluded.reminded_at`).run(roomId, now);
     return true;
   });
 }

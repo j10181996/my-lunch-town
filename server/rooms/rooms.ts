@@ -18,7 +18,7 @@ import { err, withWriteTx, type Db } from "../db";
 import { randomId, requestId as checkRequestId, text } from "../util";
 import { roomStoreOrders } from "../orders/storeOrders";
 
-import { paymentStatus } from "./payments";
+import { paymentRemindedAt, paymentStatus } from "./payments";
 
 interface RoomRow {
   payment_json: string | null;
@@ -151,6 +151,11 @@ export function loadItems(db: Db, roomId: string, memberId?: string): OrderItem[
   }));
 }
 
+function myPayment(db: Db, roomId: string, memberId: string, amountTwd: number) {
+  const status = paymentStatus(db, roomId, memberId);
+  return { amountTwd, status, remindedAt: status === "unpaid" ? paymentRemindedAt(db, roomId) : null };
+}
+
 export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSnapshot {
   const { room, me } = requireMember(db, roomId, sessionId);
   const catalog = loadCatalog(db, room);
@@ -167,11 +172,10 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
       info: JSON.parse(room.payment_json) as PaymentInfo,
       sentAt: room.payment_sent_at,
       ownerNickname: listMembers(db, roomId).find((m) => m.role === "owner")!.nickname,
+      ...(me.role === "owner" ? { remindedAt: paymentRemindedAt(db, roomId) } : {}),
     } : null,
-    myPayment: room.status === "closed" && me.role !== "owner" && mine.totalTwd > 0 ? {
-      amountTwd: mine.totalTwd,
-      status: paymentStatus(db, roomId, me.id),
-    } : null,
+    myPayment: room.status === "closed" && me.role !== "owner" && mine.totalTwd > 0
+      ? myPayment(db, roomId, me.id, mine.totalTwd) : null,
     socialEnabled: socialEnabled(db, me.id),
     room: toRoom(room),
     me,
