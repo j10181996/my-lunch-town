@@ -5,6 +5,8 @@ export const ACHIEVEMENTS = [
   { id: "order", icon: "🍱", name: "開飯啦", description: "第一次成功點餐" },
   { id: "friend", icon: "🐾", name: "毛孩好朋友", description: "第一次摸摸小動物" },
   { id: "collect", icon: "🌼", name: "口袋收藏家", description: "撿起一件街區小物" },
+  { id: "shopkeeper", icon: "🧑‍🍳", name: "店主的朋友", description: "第一次和店主聊天" },
+  { id: "regular", icon: "🏮", name: "常客", description: "同一家店造訪滿 5 天" },
 ] as const;
 export type AchievementId = typeof ACHIEVEMENTS[number]["id"];
 export type Accessory = "none" | "flower" | "leaf" | "cap";

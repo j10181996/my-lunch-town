@@ -134,7 +134,7 @@ export interface ApiError {
 }
 export interface PlayerPresence {
   accessory?: "none" | "flower" | "leaf" | "cap";
-  badge?: "visit" | "order" | "friend" | "collect";
+  badge?: import("./social").BadgeId;
   memberId: Id;
   sceneId: SceneId;
   x: number; // 0..1，場景內邏輯座標

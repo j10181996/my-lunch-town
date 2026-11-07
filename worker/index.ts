@@ -1,5 +1,6 @@
 import type { MoveInput, PlayerPresence } from "../shared/contracts";
 import type { Ctx } from "../server/context";
+import { isBadgeId } from "../shared/social";
 import { PAYMENT_REMINDER_SCHEMA } from "../server/rooms/payment-schema";
 import { requireMember } from "../server/rooms/rooms";
 import { closeExpiredRooms } from "../server/rooms/deadline";
@@ -38,7 +39,7 @@ function validMove(value: unknown): value is MoveInput {
     && Number.isFinite(m.x) && m.x >= 0 && m.x <= 1
     && Number.isFinite(m.y) && m.y >= 0 && m.y <= 1
     && (m.accessory === undefined || ["none", "flower", "leaf", "cap"].includes(m.accessory))
-    && (m.badge === undefined || ["visit", "order", "friend", "collect"].includes(m.badge))
+    && (m.badge === undefined || isBadgeId(m.badge))
     && ["up", "down", "left", "right"].includes(m.direction) && Number.isSafeInteger(m.seq);
 }
 
