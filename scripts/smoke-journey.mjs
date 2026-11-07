@@ -125,7 +125,7 @@ try {
     await guest.setViewportSize(size);
     const quest = await guest.locator(".quest-toggle").boundingBox();
     const emotes = await guest.locator(".emote-bar").boundingBox();
-    assert(quest.x + quest.width <= emotes.x, "新手任務與表情按鈕不可重疊");
+    assert(quest.x + quest.width <= emotes.x || quest.y + quest.height <= emotes.y, "新手任務與表情按鈕不可重疊");
     assert(await guest.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "窄版與橫向不可溢出");
     await guest.getByRole("button", { name: /新手任務/ }).tap();
     const steps = guest.getByRole("region", { name: "新手任務" });
