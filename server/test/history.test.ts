@@ -89,7 +89,7 @@ describe("我的團歷史", () => {
 describe("再揪一次", () => {
   it("用歷史的設定開新團：套用當下菜單，不複製成員、訂單或付款", async () => {
     const kai = client(), rain = client();
-    const old = await open(kai, "老地方", { deliveryPoint: { x: 0.6, y: 0.2 } });
+    const old = await open(kai, "老地方", { deliveryPoint: { x: 0.6, y: 0.2 }, deliveryAddress: "A 棟 3 樓" });
     await rain.post(`/api/rooms/${old}/join`, { nickname: "小雨", avatarId: "avatar-pink" });
     await rain.post(`/api/rooms/${old}/order-delta`, { mealId: "meal-af-pork", delta: 1, requestId: rid() });
     await kai.post(`/api/rooms/${old}/close`, { requestId: rid() });
@@ -99,12 +99,14 @@ describe("再揪一次", () => {
     const [h] = await history(rain);
     const again = await rain.post("/api/rooms", {
       title: h.title, nickname: h.nickname, avatarId: h.avatarId, requestId: rid(),
-      storeIds: h.stores.map((s) => s.id), deliveryPoint: h.deliveryPoint,
+      storeIds: h.stores.map((s) => s.id), deliveryPoint: h.deliveryPoint, deliveryAddress: h.deliveryAddress,
     });
     expect(again.status).toBe(200);
     const snap = again.body.snapshot;
     expect(snap.room.id).not.toBe(old);
-    expect(snap.room).toMatchObject({ title: "老地方", status: "open", deliveryPoint: { x: 0.6, y: 0.2 } });
+    expect(snap.room).toMatchObject({
+      title: "老地方", status: "open", deliveryPoint: { x: 0.6, y: 0.2 }, deliveryAddress: "A 棟 3 樓",
+    });
     expect(snap.me).toMatchObject({ role: "owner", nickname: "小雨", avatarId: "avatar-pink" });
     expect(snap.members).toHaveLength(1);
     expect(snap.totalQuantity).toBe(0);

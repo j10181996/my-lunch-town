@@ -336,6 +336,8 @@ export function RoomOrderStatus({ snap }: { snap: RoomSnapshot }) {
   return (
     <section className="card stack" aria-label="訂單狀態">
       <h3 className="section-title">訂單狀態</h3>
+      {snap.room.deliveryAddress && snap.storeOrders?.some((o) => o.fulfillment === "delivery") &&
+        <div className="delivery-address">送餐地址：{snap.room.deliveryAddress}</div>}
       {(snap.storeOrders ?? []).map((order) => (
         <div className="stack room-store-order" key={order.storeId}>
           <div className="row"><strong>{order.storeName}</strong><OrderStatusBadge status={order.status} /></div>

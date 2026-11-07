@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
-import type { RoomSnapshot } from "../../shared/contracts";
+import { DELIVERY_ADDRESS_MAX, type RoomSnapshot } from "../../shared/contracts";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app";
 import { distanceKm } from "../../shared/delivery";
@@ -708,6 +708,56 @@ describe("外送設定、凍結與收單", () => {
     for (const deliveryPoint of [null, { x: -0.1, y: 0 }, { x: 1.1, y: 0 }, { x: 0, y: 1.1 }, { x: "0", y: 0 }, {}]) {
       expect(await owner.post("/api/rooms", { ...body, requestId: rid(), deliveryPoint }))
         .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+    }
+  });
+
+  it("送餐地址：團員可見，只交給外送單的店家，自取單不帶", async () => {
+    const shop = client();
+    for (const id of ["af", "tree"]) {
+      await shop.post("/api/stores/claim", { manageKey: `demo-store-${id}` });
+      await shop.put(`/api/stores/store-${id}/delivery`, rules);
+    }
+    const owner = client();
+    const address = "台中市西屯區市政北二路 100 號 8 樓";
+    const { snapshot } = (await owner.post("/api/rooms", {
+      title: "地址測試", nickname: "阿凱", requestId: rid(), deliveryPoint: point,
+      deliveryAddress: `  ${address}  `, storeIds: SAMPLE_STORE_IDS,
+    })).body;
+    const roomId = snapshot.room.id;
+    expect(snapshot.room.deliveryAddress).toBe(address);
+    const member = client();
+    expect((await member.post(`/api/rooms/${roomId}/join`, { nickname: "小美" })).body.room.deliveryAddress).toBe(address);
+    await plus(owner, roomId, "meal-af-chicken");
+    await plus(owner, roomId, "meal-tree-dry");
+    const closed = (await owner.post(`/api/rooms/${roomId}/close`, { requestId: rid() })).body;
+    expect(closed.room.deliveryAddress).toBe(address);
+    for (const order of closed.storeOrders) expect(order).not.toHaveProperty("deliveryAddress");
+    expect((await shop.get("/api/stores/store-af/orders")).body[0])
+      .toMatchObject({ fulfillment: "delivery", deliveryAddress: address });
+    expect((await shop.get("/api/stores/store-tree/orders")).body[0])
+      .toMatchObject({ fulfillment: "pickup", deliveryAddress: null });
+  });
+
+  it("送餐地址選填、空白視為未填；過長、非文字或沒選地點則拒絕；去重包含地址", async () => {
+    const owner = client();
+    const base = { title: "午餐", nickname: "阿凱", deliveryPoint: point, storeIds: SAMPLE_STORE_IDS };
+    const blank = await owner.post("/api/rooms", { ...base, requestId: rid(), deliveryAddress: "   " });
+    expect(blank.body.snapshot.room.deliveryAddress).toBeNull();
+    const max = "址".repeat(DELIVERY_ADDRESS_MAX);
+    expect((await owner.post("/api/rooms", { ...base, requestId: rid(), deliveryAddress: max })).body.snapshot.room.deliveryAddress)
+      .toBe(max);
+    for (const deliveryAddress of [max + "址", 123, ["a"]]) {
+      expect(await owner.post("/api/rooms", { ...base, requestId: rid(), deliveryAddress }))
+        .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+    }
+    expect(await owner.post("/api/rooms", { ...base, requestId: rid(), deliveryPoint: undefined, deliveryAddress: "某處" }))
+      .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+    const body = { ...base, requestId: rid(), deliveryAddress: "A 棟" };
+    const first = await owner.post("/api/rooms", body);
+    expect((await owner.post("/api/rooms", body)).body).toEqual(first.body);
+    for (const deliveryAddress of ["B 棟", undefined]) {
+      expect(await owner.post("/api/rooms", { ...body, deliveryAddress }))
+        .toMatchObject({ status: 409, body: { code: "REQUEST_ID_CONFLICT" } });
     }
   });
 });

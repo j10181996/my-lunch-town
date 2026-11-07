@@ -288,10 +288,13 @@ export type DeliveryRules = {
   enabled: boolean;
   tiers: Array<{ maxKm: number; minTwd: number }>;
 };
-export interface Room { deliveryPoint?: Point | null }
+/** 送餐地址（選填）上限字數；只給團員與外送單的店家看，自取單不帶地址。 */
+export const DELIVERY_ADDRESS_MAX = 100;
+export interface Room { deliveryPoint?: Point | null; deliveryAddress?: string | null }
 export interface Store { delivery?: DeliveryRules | null }
 export interface StoreProfile { delivery: DeliveryRules | null }
-export interface CreateRoomInput { deliveryPoint?: Point }
+export interface CreateRoomInput { deliveryPoint?: Point; deliveryAddress?: string }
+export interface StoreOrder { deliveryAddress: string | null }
 export interface RoomStoreOrder {
   fulfillment: "delivery" | "pickup";
   distanceKm: number | null;
@@ -412,5 +415,7 @@ export interface MyRoomSummary {
   nickname: string;
   avatarId: string;
   deliveryPoint: Point | null;
+  /** 團員本來就看得到送餐地址，「再揪一次」一併沿用。 */
+  deliveryAddress: string | null;
   stores: Array<{ id: Id; name: string }>;
 }

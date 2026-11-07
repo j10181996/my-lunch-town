@@ -25,6 +25,7 @@ interface OrderRow {
   fulfillment: "delivery" | "pickup";
   distance_km: number | null;
   delivery_min_twd: number | null;
+  delivery_address: string | null;
 }
 
 function toOrder(r: OrderRow): StoreOrder {
@@ -46,6 +47,7 @@ function toOrder(r: OrderRow): StoreOrder {
     fulfillment: r.fulfillment,
     distanceKm: r.distance_km,
     deliveryMinTwd: r.delivery_min_twd,
+    deliveryAddress: r.delivery_address ?? null,
   };
 }
 
@@ -59,8 +61,9 @@ export function createStoreOrders(db: Db, roomId: string, ownerNickname: string)
   const now = Date.now();
   const insert = db.prepare(`INSERT INTO store_orders
     (id, room_id, store_id, store_name, room_title, owner_nickname, status, items_json,
-     people_json, total_quantity, total_twd, created_at, updated_at, fulfillment, distance_km, delivery_min_twd)
-    VALUES (?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+     people_json, total_quantity, total_twd, created_at, updated_at, fulfillment, distance_km, delivery_min_twd,
+     delivery_address)
+    VALUES (?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const store of totals) {
     const frozen = catalog.stores.find((s) => s.id === store.storeId)!;
     const km = room.delivery_x === null
@@ -101,6 +104,8 @@ export function createStoreOrders(db: Db, roomId: string, ownerNickname: string)
       fulfillmentOf(delivery),
       km,
       delivery.kind === "ok" || delivery.kind === "below-min" ? delivery.minTwd : null,
+      // 地址屬個資：只交給要外送的店家，自取單不帶。
+      fulfillmentOf(delivery) === "delivery" ? room.delivery_address ?? null : null,
     );
   }
   return totals.map((s) => s.storeId);

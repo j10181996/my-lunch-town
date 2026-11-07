@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Point, TownLot } from "../../shared/contracts";
+import { DELIVERY_ADDRESS_MAX, type Point, type TownLot } from "../../shared/contracts";
 import { roomGateway, storeGateway } from "../adapters/http";
 import { ApiError, errorText, newRequestId } from "../api";
 import { link, navigate } from "../router";
@@ -21,6 +21,11 @@ export function Home() {
   function pickDelivery(point: Point | null) {
     setDeliveryPoint(point);
     localStorageSet("lt-delivery-point", JSON.stringify(point));
+  }
+  const [deliveryAddress, setDeliveryAddressState] = useState(() => localStorageGet("lt-delivery-address"));
+  function setDeliveryAddress(value: string) {
+    setDeliveryAddressState(value);
+    localStorageSet("lt-delivery-address", value);
   }
   const [title, setTitle] = useState("今天午餐團");
   const [nickname, setNickname] = useState(() => localStorageGet("lt-nickname"));
@@ -68,8 +73,11 @@ export function Home() {
         frozenDeadline.current = { requestId, deadlineAt: deadlineFromChoice(deadlineChoice, customTime) };
       }
       const { deadlineAt } = frozenDeadline.current;
+      // 沒選地點就全部自取，地址不送出。
+      const address = deliveryPoint ? deliveryAddress.trim() : "";
       const r = await roomGateway.createRoom({
-        title, nickname, avatarId: avatar, requestId, storeIds, deliveryPoint: deliveryPoint ?? undefined,
+        title, nickname, avatarId: avatar, requestId, storeIds,
+        deliveryPoint: deliveryPoint ?? undefined, deliveryAddress: address || undefined,
         ...(deadlineAt !== null ? { deadlineAt } : {}),
       });
       navigate(r.invitePath);
@@ -159,6 +167,12 @@ export function Home() {
                 <div className="lot-label">{lot.store.name}{lot.store.status === "open" ? "" : "（休息）"}</div>
               </div> : <div className="lot-label">空地</div>} />
             <small className="muted">{deliveryPoint ? "已選送餐地點，收單時依各店門檻決定外送或自取。" : "未選送餐地點，全部自取。"}</small>
+            {deliveryPoint && <label className="field">
+              送餐地址 <small>選填，最多 {DELIVERY_ADDRESS_MAX} 字；只給團員與要外送的店家看</small>
+              <input type="text" value={deliveryAddress} maxLength={DELIVERY_ADDRESS_MAX}
+                placeholder="例：台中市西屯區市政北二路 100 號 8 樓，到了請打分機 123"
+                onChange={(e) => setDeliveryAddress(e.target.value)} />
+            </label>}
             <button type="button" className="btn small" onClick={() => pickDelivery(null)}>
               不外送，全部自取
             </button>

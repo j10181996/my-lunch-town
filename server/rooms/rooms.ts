@@ -13,6 +13,7 @@ import type {
   StreetStore,
   PaymentInfo,
 } from "../../shared/contracts";
+import { DELIVERY_ADDRESS_MAX } from "../../shared/contracts";
 import { computeStoreTotals, grandTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
 import { AVATAR_IDS, LOTS, lotDoor } from "../../shared/town";
 import type { Ctx } from "../context";
@@ -34,6 +35,7 @@ interface RoomRow {
   revision: number;
   delivery_x: number | null;
   delivery_y: number | null;
+  delivery_address: string | null;
   deadline_at?: number | null;
 }
 interface MemberRow {
@@ -60,6 +62,7 @@ export function toRoom(r: RoomRow): Room {
     catalogVersion: r.catalog_version,
     revision: r.revision,
     deliveryPoint: r.delivery_x === null ? null : { x: r.delivery_x, y: r.delivery_y! },
+    deliveryAddress: r.delivery_address ?? null,
     deadlineAt: r.deadline_at ?? null,
   };
 }
@@ -250,6 +253,15 @@ function parseStoreIds(value: unknown): string[] | null {
   return ids;
 }
 
+/** 選填：去除前後空白，空字串視為未填。 */
+function parseDeliveryAddress(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") throw err.invalid("送餐地址必須是文字");
+  const v = value.trim();
+  if ([...v].length > DELIVERY_ADDRESS_MAX) throw err.invalid(`送餐地址最多 ${DELIVERY_ADDRESS_MAX} 個字`);
+  return v || null;
+}
+
 export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) {
   const title = text(input?.title, "團名", 1, 20);
   const nickname = text(input?.nickname, "暱稱", 1, 12);
@@ -260,10 +272,14 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
     || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1)) {
     throw err.invalid("送餐地點座標須在 0 至 1 之間");
   }
+  const address = parseDeliveryAddress(input?.deliveryAddress);
+  if (address && !point) throw err.invalid("請先在地圖選送餐地點，再填送餐地址");
   // 沒選地點時保留上一版 digest，讓升級前的成功請求仍可重試。
   const avatarId = typeof input?.avatarId === "string" && AVATAR_IDS.includes(input.avatarId) ? input.avatarId : null;
   // 沒選角色時沿用舊 digest，讓舊版前端的重試請求仍然成立。
-  const baseDigest = point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
+  const pointDigest = point ? JSON.stringify([title, nickname, [point.x, point.y]]) : `${title}|${nickname}`;
+  // 沒填地址時沿用舊 digest；物件格式避免與角色那層的陣列格式撞在一起。
+  const baseDigest = address ? JSON.stringify({ base: pointDigest, address }) : pointDigest;
   const avatarDigest = avatarId ? JSON.stringify([baseDigest, avatarId]) : baseDigest;
   const storeIds = parseStoreIds(input?.storeIds);
   // 沒帶店家只可能是升級前的請求：沿用舊 digest，讓已成功的請求仍能重試，新請求在交易內拒絕。
@@ -314,9 +330,9 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
     const isSample = stores.every((s) => s.is_sample === 1) ? 1 : 0;
     db.prepare(
       `INSERT INTO rooms
-        (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y, deadline_at)
-        VALUES (?, ?, 'open', ?, ?, 1, ?, ?, ?, ?)`,
-    ).run(id, title, `room:${id}`, isSample, Date.now(), point?.x ?? null, point?.y ?? null, deadlineAt);
+        (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y, deadline_at, delivery_address)
+        VALUES (?, ?, 'open', ?, ?, 1, ?, ?, ?, ?, ?)`,
+    ).run(id, title, `room:${id}`, isSample, Date.now(), point?.x ?? null, point?.y ?? null, deadlineAt, address);
 
     const insStore = db.prepare(
       `INSERT INTO room_stores

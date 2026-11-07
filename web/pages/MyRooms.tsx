@@ -37,6 +37,7 @@ export function MyRooms({ openStoreIds }: { openStoreIds: Set<string> }) {
       const r = await roomGateway.createRoom({
         title: room.title, nickname: room.nickname, avatarId: room.avatarId, requestId, storeIds,
         deliveryPoint: room.deliveryPoint ?? undefined,
+        deliveryAddress: room.deliveryPoint ? room.deliveryAddress ?? undefined : undefined,
       });
       navigate(r.invitePath);
     } catch (e) {

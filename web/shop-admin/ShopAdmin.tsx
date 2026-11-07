@@ -575,6 +575,9 @@ function StoreOrderCard({ order, onSaved, onSeen }: {
         <time dateTime={new Date(order.createdAt).toISOString()}>{new Date(order.createdAt).toLocaleString("zh-TW")}</time>
       </div>
       <span className={`fulfillment-badge ${order.fulfillment}`}>{describeFulfillment(order)}</span>
+      {order.fulfillment === "delivery" && <div className="delivery-address">
+        送餐地址：{order.deliveryAddress ?? <span className="muted">團主未填，請聯絡揪團者</span>}
+      </div>}
       {order.items.map((item) => <div className="sum-line" key={item.mealId}>
         <span>{item.name}</span><span>{item.quantity} 份</span><strong>{money(item.subtotalTwd)}</strong>
       </div>)}

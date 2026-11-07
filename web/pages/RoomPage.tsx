@@ -364,6 +364,8 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
             收單後會<strong>直接把訂單送到各店家</strong>，大家將無法再修改。
             目前共 {snap.totalQuantity} 份、{money(snap.totalTwd)}。
           </p>
+          {snap.room.deliveryAddress && deliveryPlans.some(({ result }) => fulfillmentOf(result) === "delivery") &&
+            <div className="delivery-address">外送店家會收到送餐地址：{snap.room.deliveryAddress}</div>}
           <div className="stack">
             {deliveryPlans.map(({ store, result }) => <div key={store.id}
               className={result.kind !== "ok" && result.kind !== "no-point" ? "banner info delivery-warning" : ""}>
