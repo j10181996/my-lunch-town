@@ -68,9 +68,13 @@ await guest("POST", root + "/close", { requestId: id() }, 403);
 await admin("POST", "/api/stores/claim", { manageKey: `demo-${meal.storeId}` });
 await guest("POST", `/api/stores/${meal.storeId}/live`, {}, 403);
 const before = await admin("POST", `/api/stores/${meal.storeId}/live`, {});
+const liveBefore = await owner("POST", root + "/live", ownerLive); // warms the isolate's cached snapshot
 const closed = await owner("POST", root + "/close", { requestId: id() });
 assert.equal(closed.room.status, "closed");
 assert.equal(closed.totalQuantity, 8);
+const liveAfter = await owner("POST", root + "/live", ownerLive);
+assert(liveAfter.revision > liveBefore.revision, "live sync must not serve a stale cached snapshot after a write");
+assert.equal(liveAfter.revision, closed.room.revision);
 await guest("POST", root + "/order-delta", { ...change, requestId: id() }, 409);
 await guest("POST", root + "/order-delta", change); // same original request still returns its original acknowledgement
 assert((await owner("GET", root + "/export")).includes(meal.name));
