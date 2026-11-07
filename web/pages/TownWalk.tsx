@@ -90,6 +90,7 @@ export function TownWalk() {
             {store ? (
               <section className="stack" aria-label={`${store.name} 菜單`}>
                 <h2>{store.name}</h2>
+                {store.address && <div className="muted">📍 {store.address}</div>}
                 {store.resting && <div className="banner info">這家目前休息中，現在開團不會包含它。</div>}
                 <div className="menu">
                   {snap.catalog.meals.filter((m) => m.storeId === store.id).map((m) => (

@@ -15,7 +15,7 @@ import type {
 } from "../../shared/contracts";
 import { DELIVERY_ADDRESS_MAX } from "../../shared/contracts";
 import { computeStoreTotals, grandTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
-import { AVATAR_IDS, lotDoor } from "../../shared/town";
+import { AVATAR_IDS, LOTS, lotDoor } from "../../shared/town";
 import type { Ctx } from "../context";
 import { err, withWriteTx, type Db } from "../db";
 import { randomId, requestId as checkRequestId, text } from "../util";
@@ -100,9 +100,10 @@ export function listMembers(db: Db, roomId: string): Member[] {
 /** 讀取該團凍結的菜單。 */
 export function loadCatalog(db: Db, room: RoomRow): Catalog {
   const stores = db
-    .prepare("SELECT * FROM room_stores WHERE room_id = ? ORDER BY sort_order")
+    .prepare("SELECT rs.*, (SELECT address FROM stores WHERE id = rs.store_id) AS address FROM room_stores rs WHERE room_id = ? ORDER BY sort_order")
     .all(room.id) as Array<{
       store_id: string;
+      address: string | null;
       name: string;
       style_key: string;
       lot_index: number;
@@ -123,6 +124,7 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
     isSample: room.is_sample === 1,
     stores: stores.map((s) => ({
       id: s.store_id,
+      address: s.address ?? undefined,
       name: s.name,
       sceneId: `shop:${s.store_id}` as const,
       door: { x: s.door_x, y: s.door_y },
@@ -238,8 +240,8 @@ function pickAvatar(db: Db, roomId: string): string {
   return AVATAR_IDS.find((a) => !set.has(a)) ?? AVATAR_IDS[used.length % AVATAR_IDS.length];
 }
 
-/** 小鎮最多 12 個店面格；排序後納入 digest，勾選順序不同視為同一請求。 */
-const MAX_ROOM_STORES = 12;
+/** 選店數依小鎮地段上限；排序後納入 digest，勾選順序不同視為同一請求。 */
+const MAX_ROOM_STORES = LOTS.length;
 function parseStoreIds(value: unknown): string[] | null {
   if (value === undefined) return null;
   if (!Array.isArray(value) || value.length === 0) throw err.invalid("請至少選一家店");

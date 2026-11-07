@@ -126,7 +126,7 @@ export function Home() {
             {openCount > 0 ? <>
               <div className="chips">
                 {openStores.map((s) => (
-                  <label key={s.id} className={`chip${storeIds.includes(s.id) ? " on" : ""}`}>
+                  <label key={s.id} title={s.address} className={`chip${storeIds.includes(s.id) ? " on" : ""}`}>
                     <input type="checkbox" checked={storeIds.includes(s.id)} onChange={() => togglePick(s.id)} />
                     {s.name}
                   </label>

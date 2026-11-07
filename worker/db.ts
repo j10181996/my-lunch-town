@@ -1,3 +1,4 @@
+import { migrateTaichungExpansion } from "../server/catalog/taichung-expansion";
 import { PARTY_SCHEMA } from "../server/rooms/party-schema";
 import { migrateStoreHours } from "../server/store-hours-schema";
 import { migrateDeliveryAddress } from "../server/delivery-address-schema";
@@ -55,6 +56,7 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
     },
   } as unknown as Db;
   migrateStoreHours(db);
+  migrateTaichungExpansion(db);
   migrateDeadline(db);
   migrateDeliveryAddress(db);
   return { db, raw };

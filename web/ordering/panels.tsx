@@ -54,6 +54,7 @@ export function MenuPanel({
           <StoreIcon store={store} />
           <div>
             <h2>{store.name}</h2>
+            {store.address && <div className="muted">📍 {store.address}</div>}
             <DeliveryStatus snap={snap} store={store} />
           </div>
         </div>
