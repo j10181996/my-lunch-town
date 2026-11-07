@@ -177,6 +177,16 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
     return { store, result: deliveryForStore(snap, store) };
   });
   const hasDeliveryWarnings = deliveryPlans.some(({ result }) => result.kind !== "ok" && result.kind !== "no-point");
+  const ownerCloseButton = isOwner &&
+    (closed ? (
+      <button className="btn primary big" onClick={openExport}>
+        查看並複製訂購明細
+      </button>
+    ) : (
+      <button className="btn primary big" disabled={conn !== "online" || snap.totalQuantity === 0} onClick={() => setConfirmClose(true)}>
+        收單並複製明細
+      </button>
+    ));
 
   return (
     <div className="room">
@@ -231,6 +241,7 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
             <>
               <MenuPanel {...ordering} store={store} focusMealId={nearMealId} />
               <MyOrder {...ordering} />
+              {ownerCloseButton}
             </>
           ) : (
             <>
@@ -274,16 +285,7 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
                   onRemind={() => void paymentAction(() => roomGateway.remindUnpaid(snap.room.id))} />
               </div>}
 
-              {isOwner &&
-                (closed ? (
-                  <button className="btn primary big" onClick={openExport}>
-                    查看並複製訂購明細
-                  </button>
-                ) : (
-                  <button className="btn primary big" disabled={conn !== "online" || snap.totalQuantity === 0} onClick={() => setConfirmClose(true)}>
-                    收單並複製明細
-                  </button>
-                ))}
+              {ownerCloseButton}
 
               <div className="stack">
                 <strong>前往店家</strong>
