@@ -379,3 +379,10 @@ input, select, textarea { font-size: 16px; }
   .side .menu-tools { justify-content: flex-start; flex-wrap: wrap; }
   .side .menu-head .shop-head h2 { white-space: normal; overflow-wrap: anywhere; }
 }
+
+/* 截止時間（#15） */
+.deadline-tag { background: var(--warn-bg); color: #8a5a1a; font-variant-numeric: tabular-nums; }
+.deadline-tag.urgent { background: var(--accent); color: #fff; animation: deadline-pulse 1s steps(2) infinite; }
+.deadline-card.urgent { border-color: var(--accent); background: var(--err-bg); }
+@keyframes deadline-pulse { 50% { opacity: 0.65; } }
+@media (prefers-reduced-motion: reduce) { .deadline-tag.urgent { animation: none; } }
