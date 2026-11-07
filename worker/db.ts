@@ -6,6 +6,7 @@ import { migrateDeliveryAddress } from "../server/delivery-address-schema";
 import { backfillSeedLocations, migrateGeoLocation } from "../server/geo-schema";
 import { migrateDeadline } from "../server/rooms/deadline";
 import { SOCIAL_SCHEMA } from "../server/rooms/social-schema";
+import { STORE_LIKES_SCHEMA } from "../server/stores/likes-schema";
 import initSqlJs, { type Database, type SqlValue } from "sql.js/dist/sql-wasm-browser.js";
 import sqliteWasm from "./sqlite.wasm";
 import seedBytes from "./seed.bin";
@@ -29,6 +30,7 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
   raw.exec(SOCIAL_SCHEMA);
   raw.exec(MEAL_IMAGES_SCHEMA);
   raw.exec(PARTY_SCHEMA);
+  raw.exec(STORE_LIKES_SCHEMA);
   // Match node:sqlite's small synchronous surface used by the domain modules.
   // Every statement is freed, including reads returning no rows.
   const query = (sql: string, args: SqlValue[], all: boolean) => {
