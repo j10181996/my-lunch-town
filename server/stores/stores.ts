@@ -12,6 +12,7 @@ import type {
 } from "../../shared/contracts";
 import { validateDeliveryRules } from "../../shared/delivery";
 import { validateGeoPoint } from "../../shared/geo";
+import { parseOptionGroups, validateOptionGroups } from "../../shared/meal-options";
 import { DEFAULT_MEAL_ART, LOTS, STYLE_KEYS } from "../../shared/town";
 import { AppError, err, withWriteTx, type Db } from "../db";
 import { hashKey, intInRange, oneOf, randomId, requestId as checkRequestId, text } from "../util";
@@ -49,7 +50,7 @@ function loadProfile(db: Db, storeId: string): StoreProfile {
   if (!s) throw storeNotFound();
   const meals = db
     .prepare("SELECT * FROM meals WHERE store_id = ? ORDER BY sort_order, id")
-    .all(storeId) as Array<{ id: string; name: string; price_twd: number; image_key: string; available: number; tags_json: string; sort_order: number }>;
+    .all(storeId) as Array<{ id: string; name: string; price_twd: number; image_key: string; available: number; tags_json: string; sort_order: number; options_json: string | null }>;
   const active = db
     .prepare("SELECT COUNT(*) AS n FROM room_stores rs JOIN rooms r ON r.id = rs.room_id WHERE rs.store_id = ? AND r.status = 'open'")
     .get(storeId) as { n: number };
@@ -74,6 +75,7 @@ function loadProfile(db: Db, storeId: string): StoreProfile {
         available: m.available === 1,
         tags: JSON.parse(m.tags_json) as string[],
         sortOrder: m.sort_order,
+        options: parseOptionGroups(m.options_json),
       }),
     ),
   };
@@ -218,8 +220,17 @@ function parseMeal(input: Partial<MealInput>, base?: MealInput): MealInput {
     tags = [...new Set(input.tags.map((t) => text(t, "標籤", 1, 8)))];
     if (tags.length > MAX_MEAL_TAGS) throw err.invalid(`標籤最多 ${MAX_MEAL_TAGS} 個`);
   }
+  let options = base?.options ?? [];
+  if (input.options !== undefined) {
+    try { options = validateOptionGroups(input.options); } catch (e) { throw err.invalid((e as Error).message); }
+  }
   if (name === undefined || priceTwd === undefined) throw err.invalid("餐點需要名稱與價格");
-  return { name, priceTwd, imageAssetKey, available, tags };
+  return { name, priceTwd, imageAssetKey, available, tags, options };
+}
+
+/** 沒有選項存 NULL，與遷移前的資料一致。 */
+function optionsJson(options: MealInput["options"]): string | null {
+  return options && options.length > 0 ? JSON.stringify(options) : null;
 }
 
 export function addMeal(db: Db, sessionId: string, storeId: string, input: MealInput): StoreProfile {
@@ -231,8 +242,9 @@ export function addMeal(db: Db, sessionId: string, storeId: string, input: MealI
     if (n >= 12) throw err.invalid("每家店最多 12 道餐點");
     const max = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM meals WHERE store_id = ?").get(storeId) as { m: number };
     db.prepare(
-      "INSERT INTO meals (id, store_id, name, price_twd, image_key, available, tags_json, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(`meal-${randomId(8)}`, storeId, meal.name, meal.priceTwd, meal.imageAssetKey, meal.available ? 1 : 0, JSON.stringify(meal.tags), max.m + 1);
+      "INSERT INTO meals (id, store_id, name, price_twd, image_key, available, tags_json, sort_order, options_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(`meal-${randomId(8)}`, storeId, meal.name, meal.priceTwd, meal.imageAssetKey, meal.available ? 1 : 0, JSON.stringify(meal.tags), max.m + 1,
+      optionsJson(meal.options));
     autoRestIfEmpty(db, storeId);
     return loadProfile(db, storeId);
   });
@@ -240,7 +252,7 @@ export function addMeal(db: Db, sessionId: string, storeId: string, input: MealI
 
 function requireMeal(db: Db, storeId: string, mealId: string) {
   const m = db.prepare("SELECT * FROM meals WHERE id = ? AND store_id = ?").get(mealId, storeId) as
-    | { name: string; price_twd: number; image_key: string; available: number; tags_json: string; sort_order: number }
+    | { name: string; price_twd: number; image_key: string; available: number; tags_json: string; sort_order: number; options_json: string | null }
     | undefined;
   if (!m) throw err.mealNotFound();
   return m;
@@ -256,14 +268,16 @@ export function updateMeal(db: Db, sessionId: string, storeId: string, mealId: s
       imageAssetKey: cur.image_key,
       available: cur.available === 1,
       tags: JSON.parse(cur.tags_json) as string[],
+      options: parseOptionGroups(cur.options_json),
     });
     next.imageAssetKey = resolveMealImage(db, storeId, next.imageAssetKey);
-    db.prepare("UPDATE meals SET name = ?, price_twd = ?, image_key = ?, available = ?, tags_json = ? WHERE id = ?").run(
+    db.prepare("UPDATE meals SET name = ?, price_twd = ?, image_key = ?, available = ?, tags_json = ?, options_json = ? WHERE id = ?").run(
       next.name,
       next.priceTwd,
       next.imageAssetKey,
       next.available ? 1 : 0,
       JSON.stringify(next.tags),
+      optionsJson(next.options),
       mealId,
     );
     autoRestIfEmpty(db, storeId);

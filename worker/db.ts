@@ -6,6 +6,7 @@ import { migrateDeliveryAddress } from "../server/delivery-address-schema";
 import { backfillSeedLocations, migrateGeoLocation } from "../server/geo-schema";
 import { migrateDeadline } from "../server/rooms/deadline";
 import { SOCIAL_SCHEMA } from "../server/rooms/social-schema";
+import { migrateMealOptions } from "../server/orders/options-schema";
 import { STORE_LIKES_SCHEMA } from "../server/stores/likes-schema";
 import initSqlJs, { type Database, type SqlValue } from "sql.js/dist/sql-wasm-browser.js";
 import sqliteWasm from "./sqlite.wasm";
@@ -64,6 +65,7 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
   migrateTaichungExpansion(db);
   migrateDeadline(db);
   migrateDeliveryAddress(db);
+  migrateMealOptions(db);
   migrateGeoLocation(db);
   backfillSeedLocations(db);
   return { db, raw };

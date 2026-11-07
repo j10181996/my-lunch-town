@@ -205,7 +205,10 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     g.setSelf(snap.me.id);
     g.setMembers(snap.members);
     g.setCatalog(snap.catalog.stores, snap.catalog.meals, snap.streetStores);
-    g.setMyQuantities(new Map(snap.myItems.map((i) => [i.mealId, i.quantity])));
+    // 同一餐點可能有多種選項組合（#14），店內貨架顯示合計份數。
+    const qty = new Map<string, number>();
+    for (const i of snap.myItems) qty.set(i.mealId, (qty.get(i.mealId) ?? 0) + i.quantity);
+    g.setMyQuantities(qty);
     if (snap.myTotalQuantity > 0) unlock("order");
     // 收單後記下自己點了什麼，店主之後才知道你的最愛（#88）；同一團只記一次。
     if (!solo && snap.room.status === "closed") {

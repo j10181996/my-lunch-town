@@ -9,6 +9,7 @@ import { SOCIAL_SCHEMA } from "./rooms/social-schema";
 import { STORE_LIKES_SCHEMA } from "./stores/likes-schema";
 import { hashKey, withWriteTx } from "./db-shared";
 import { PAYMENT_REMINDER_SCHEMA } from "./rooms/payment-schema";
+import { migrateMealOptions } from "./orders/options-schema";
 export { hashKey, withWriteTx, AppError, err } from "./db-shared";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -141,6 +142,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   db.exec(STORE_LIKES_SCHEMA);
   migrateDelivery(db, seedFile);
   migratePayment(db);
+  migrateMealOptions(db);
   migrateGeoLocation(db); // 須在 seedIfEmpty 前：種子可帶店家位置
   seedIfEmpty(db, seedFile);
   migrateStoreHours(db);

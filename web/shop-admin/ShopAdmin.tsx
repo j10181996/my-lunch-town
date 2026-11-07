@@ -1,4 +1,6 @@
 import { MealPhotoUploader } from "./MealPhotoUploader";
+import { describeDrafts, fromDrafts, MealOptionsEditor, toDrafts } from "./MealOptionsEditor";
+import { lineName } from "../../shared/pricing";
 import { StoreHoursSettings } from "./StoreHoursSettings";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type {
@@ -308,8 +310,10 @@ function MealEditor({
     imageAssetKey: meal?.imageAssetKey ?? DEFAULT_MEAL_ART,
     available: meal?.available ?? true,
     tags: meal?.tags.join(" ") ?? "",
+    options: toDrafts(meal?.options),
   };
   const [d, setD] = useState(initial);
+  const [editingOptions, setEditingOptions] = useState(false);
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState("");
   const [picking, setPicking] = useState(false);
@@ -324,6 +328,7 @@ function MealEditor({
       imageAssetKey: meal.imageAssetKey,
       available: meal.available,
       tags: meal.tags.join(" "),
+      options: toDrafts(meal.options),
     });
   }, [meal]);
 
@@ -337,6 +342,7 @@ function MealEditor({
       imageAssetKey: d.imageAssetKey,
       available: d.available,
       tags: splitTags(d.tags),
+      options: fromDrafts(d.options),
     };
   }
 
@@ -372,6 +378,9 @@ function MealEditor({
         <input type="text" value={d.name} maxLength={16} placeholder="餐點名稱" aria-label="餐點名稱" onChange={(e) => setD({ ...d, name: e.target.value })} />
         <input type="text" value={d.tags} placeholder="標籤（空白分隔，選填）" aria-label="標籤" onChange={(e) => setD({ ...d, tags: e.target.value })} style={{ fontSize: 13, padding: "3px 8px" }} />
         <DietTagPicker tags={d.tags} onChange={(tags) => setD({ ...d, tags })} />
+        <button type="button" className="link-btn" style={{ justifySelf: "start" }} onClick={() => setEditingOptions(true)}>
+          選項：{describeDrafts(d.options)}
+        </button>
       </div>
       <div>
         <input
@@ -447,6 +456,18 @@ function MealEditor({
               </button>
             ))}
           </div>
+        </Modal>
+      )}
+      {editingOptions && (
+        <Modal title={`「${d.name || "新餐點"}」的選項`} onClose={() => setEditingOptions(false)}>
+          <MealOptionsEditor
+            value={d.options}
+            onCancel={() => setEditingOptions(false)}
+            onApply={(options) => {
+              setD((old) => ({ ...old, options }));
+              setEditingOptions(false);
+            }}
+          />
         </Modal>
       )}
       {confirmDel && meal && (
@@ -611,13 +632,14 @@ function StoreOrderCard({ order, onSaved, onSeen }: {
       {order.fulfillment === "delivery" && <div className="delivery-address">
         送餐地址：{order.deliveryAddress ?? <span className="muted">團主未填，請聯絡揪團者</span>}
       </div>}
-      {order.items.map((item) => <div className="sum-line" key={item.mealId}>
-        <span>{item.name}</span><span>{item.quantity} 份</span><strong>{money(item.subtotalTwd)}</strong>
+      {order.items.map((item) => <div className="sum-line" key={item.lineKey ?? item.mealId}>
+        <span>{lineName(item.name, item.optionLabel)}</span><span>{item.quantity} 份</span><strong>{money(item.subtotalTwd)}</strong>
       </div>)}
       <div className="total-line"><span>共 {order.totalQuantity} 份</span><span>{money(order.totalTwd)}</span></div>
       <details><summary>每人明細</summary><div className="stack">
         {order.people.map((person, index) => <div key={index}>
-          <strong>{person.nickname}</strong>：{person.items.map((i) => `${i.name} × ${i.quantity}`).join("、")}
+          <strong>{person.nickname}</strong>：{person.items.map((i) =>
+            `${lineName(i.name, i.options)}${i.note ? `「${i.note}」` : ""} × ${i.quantity}`).join("、")}
           <span> · {money(person.totalTwd)}</span>
         </div>)}
       </div></details>

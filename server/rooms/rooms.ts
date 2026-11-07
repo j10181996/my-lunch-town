@@ -16,6 +16,7 @@ import type {
 import { DELIVERY_ADDRESS_MAX, type GeoPoint } from "../../shared/contracts";
 import { validateGeoPoint } from "../../shared/geo";
 import { computeStoreTotals, grandTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
+import { choiceIdsOf, lineKeyOf, parseOptionGroups } from "../../shared/meal-options";
 import { AVATAR_IDS, LOTS, lotDoor } from "../../shared/town";
 import type { Ctx } from "../context";
 import { err, withWriteTx, type Db } from "../db";
@@ -124,7 +125,7 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
     .prepare(
       "SELECT m.* FROM room_meals m JOIN room_stores s ON s.room_id = m.room_id AND s.store_id = m.store_id WHERE m.room_id = ? ORDER BY s.sort_order, m.sort_order",
     )
-    .all(room.id) as Array<{ meal_id: string; store_id: string; name: string; price_twd: number; image_key: string; available: number; tags_json: string }>;
+    .all(room.id) as Array<{ meal_id: string; store_id: string; name: string; price_twd: number; image_key: string; available: number; tags_json: string; options_json: string | null }>;
   return {
     catalogVersion: room.catalog_version,
     currency: "TWD",
@@ -150,6 +151,7 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
       imageAssetKey: m.image_key,
       available: m.available === 1,
       tags: JSON.parse(m.tags_json) as string[],
+      options: parseOptionGroups(m.options_json),
     })),
   };
 }
@@ -159,14 +161,20 @@ export function loadItems(db: Db, roomId: string, memberId?: string): OrderItem[
     memberId
       ? db.prepare("SELECT * FROM order_items WHERE room_id = ? AND member_id = ?").all(roomId, memberId)
       : db.prepare("SELECT * FROM order_items WHERE room_id = ?").all(roomId)
-  ) as Array<{ room_id: string; member_id: string; meal_id: string; quantity: number; unit_price_twd: number }>;
-  return rows.map((r) => ({
-    roomId: r.room_id,
-    memberId: r.member_id,
-    mealId: r.meal_id,
-    quantity: r.quantity,
-    unitPriceTwd: r.unit_price_twd,
-  }));
+  ) as Array<{ room_id: string; member_id: string; meal_id: string; option_key: string; note: string; quantity: number; unit_price_twd: number }>;
+  return rows.map((r) => {
+    const choiceIds = choiceIdsOf(r.option_key);
+    return {
+      roomId: r.room_id,
+      memberId: r.member_id,
+      mealId: r.meal_id,
+      quantity: r.quantity,
+      unitPriceTwd: r.unit_price_twd,
+      choiceIds,
+      note: r.note,
+      lineKey: lineKeyOf(r.meal_id, choiceIds, r.note),
+    };
+  });
 }
 
 /** 街上目前其他店面與其供應中餐點；本團店家佔用的店面格以凍結資料為準。 */
@@ -178,8 +186,8 @@ function streetStores(db: Db, catalog: Catalog): StreetStore[] {
   const others = rows.filter((r) => !ids.has(r.id) && !taken.has(r.lot_index));
   const shown = new Set(others.map((r) => r.id));
   const meals = (db
-    .prepare("SELECT id, store_id, name, price_twd, image_key, tags_json FROM meals WHERE available = 1 ORDER BY sort_order, id")
-    .all() as Array<{ id: string; store_id: string; name: string; price_twd: number; image_key: string; tags_json: string }>)
+    .prepare("SELECT id, store_id, name, price_twd, image_key, tags_json, options_json FROM meals WHERE available = 1 ORDER BY sort_order, id")
+    .all() as Array<{ id: string; store_id: string; name: string; price_twd: number; image_key: string; tags_json: string; options_json: string | null }>)
     .filter((m) => shown.has(m.store_id));
   return others.map((r) => ({
     id: r.id,
@@ -195,6 +203,7 @@ function streetStores(db: Db, catalog: Catalog): StreetStore[] {
       imageAssetKey: m.image_key,
       available: true,
       tags: JSON.parse(m.tags_json) as string[],
+      options: parseOptionGroups(m.options_json),
     })),
   }));
 }
@@ -384,8 +393,8 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
         storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).deadline, s.lat ?? null, s.lng ?? null);
     });
     db.prepare(
-      `INSERT INTO room_meals (room_id, meal_id, store_id, name, price_twd, image_key, available, tags_json, sort_order)
-       SELECT ?, m.id, m.store_id, m.name, m.price_twd, m.image_key, 1, m.tags_json, m.sort_order
+      `INSERT INTO room_meals (room_id, meal_id, store_id, name, price_twd, image_key, available, tags_json, sort_order, options_json)
+       SELECT ?, m.id, m.store_id, m.name, m.price_twd, m.image_key, 1, m.tags_json, m.sort_order, m.options_json
        FROM meals m JOIN room_stores s ON s.store_id = m.store_id AND s.room_id = ?
        WHERE m.available = 1`,
     ).run(id, id);

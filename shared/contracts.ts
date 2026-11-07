@@ -274,7 +274,7 @@ export interface StoreOrder extends RoomStoreOrder {
   roomTitle: string;
   ownerNickname: string;
   items: MealTotal[];
-  people: Array<{ nickname: string; items: Array<{ name: string; quantity: number }>; totalTwd: number }>;
+  people: Array<{ nickname: string; items: StoreOrderPersonItem[]; totalTwd: number }>;
   createdAt: number;
 }
 export interface UpdateStoreOrderInput { status: StoreOrderStatus; reason?: string }
@@ -449,6 +449,31 @@ export interface MyRoomSummary {
   stores: Array<{ id: Id; name: string }>;
 }
 
+/**
+ * 餐點選項與個人備註（#14）。選項群組隨餐點凍結進團；點餐明細的鍵是「餐點 + 選項組合 + 備註」。
+ * min／max 是可選數量：min ≥ 1 為必選，max 1 為單選。選項識別碼由伺服器依位置產生。
+ */
+export interface MealOptionChoice { id: Id; name: string; priceTwd: number }
+export interface MealOptionGroup { id: Id; name: string; min: number; max: number; choices: MealOptionChoice[] }
+export interface Meal { options?: MealOptionGroup[] }
+export interface AdminMeal { options: MealOptionGroup[] }
+/** 送出時選項與群組的 id 可省略。 */
+export interface MealInput { options?: MealOptionGroup[] }
+export interface OrderItem {
+  /** 依菜單順序；沒有選項為空陣列。 */
+  choiceIds: Id[];
+  /** 個人備註，空字串表示沒有。 */
+  note: string;
+  /** 明細識別鍵，見 shared/meal-options.ts 的 lineKeyOf。 */
+  lineKey: string;
+}
+/** 店家彙總依「餐點 + 選項組合」分列；備註只出現在每人明細。舊訂單快照沒有這些欄位。 */
+export interface MealTotal { choiceIds?: Id[]; optionLabel?: string; lineKey?: string }
+/** 都省略時等同升級前的請求（沿用原本的去重 digest）。 */
+export interface OrderDeltaInput { choiceIds?: Id[]; note?: string }
+export interface OrderAck { lineKey?: string; choiceIds?: Id[]; note?: string }
+/** 店家訂單的每人明細；options 是選項文字。舊快照沒有 options／note。 */
+export interface StoreOrderPersonItem { name: string; quantity: number; options?: string; note?: string }
 /** 吃完給店家按讚（#92）。 */
 export interface RoomSnapshot { likedStoreIds?: Id[] }
 export interface StoreLikes {

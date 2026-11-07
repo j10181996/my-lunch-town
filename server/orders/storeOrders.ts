@@ -1,6 +1,7 @@
 import type { RoomStoreOrder, StoreOrder, StoreOrderStatus, UpdateStoreOrderInput } from "../../shared/contracts";
 import { evaluateStoreDelivery, fulfillmentOf, storeDistanceKm } from "../../shared/delivery";
 import { computeStoreTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
+import { optionLabel } from "../../shared/meal-options";
 import type { Ctx } from "../context";
 import { AppError, err, withWriteTx, type Db } from "../db";
 import { bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems, toRoom } from "../rooms/rooms";
@@ -80,10 +81,17 @@ export function createStoreOrders(db: Db, roomId: string, ownerNickname: string)
         {
           nickname: member.nickname,
           totalTwd: sumItems(mine).totalTwd,
-          items: mine.map((i) => ({
-            name: store.meals.find((m) => m.mealId === i.mealId)!.name,
-            quantity: i.quantity,
-          })),
+          items: mine.map((i) => {
+            const meal = catalog.meals.find((m) => m.id === i.mealId)!;
+            const options = optionLabel(meal.options, i.choiceIds);
+            // 選項與備註只在有值時寫入，沒有選項的快照與升級前相同。
+            return {
+              name: meal.name,
+              quantity: i.quantity,
+              ...(options ? { options } : {}),
+              ...(i.note ? { note: i.note } : {}),
+            };
+          }),
         },
       ];
     });

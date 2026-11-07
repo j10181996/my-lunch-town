@@ -168,6 +168,19 @@ label.field small { font-weight: 400; color: var(--sub); }
 .chip.on { border-color: var(--green); background: var(--green-bg); font-weight: 700; }
 .chip:focus-within { outline: 3px solid #f2b631; outline-offset: 1px; }
 .diet-hidden { justify-content: space-between; flex-wrap: wrap; }
+/* 餐點選項與備註（#14）：展開在餐點列下方，橫跨整列。 */
+.link-btn { border: 0; padding: 2px 0; background: none; color: var(--accent-ink); font: inherit; font-size: 13px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.option-chooser { grid-column: 1 / -1; padding: 8px; border: 2px solid var(--line); border-radius: var(--radius); background: #fffaf0; }
+.option-group { border: 0; padding: 0; margin: 0; min-width: 0; }
+.option-group legend { font-weight: 700; font-size: 14px; padding: 0; margin-bottom: 4px; }
+.chip[aria-pressed] { font: inherit; font-size: 14px; }
+.chip[aria-pressed]:focus-visible { outline: 3px solid #f2b631; outline-offset: 1px; }
+.option-actions { flex-wrap: wrap; }
+.order-note { display: block; color: var(--sub); }
+.option-editor { display: grid; gap: 10px; }
+.option-editor fieldset { border: 2px solid var(--line); border-radius: var(--radius); padding: 8px; margin: 0; min-width: 0; display: grid; gap: 6px; }
+.option-editor .row input[type="text"] { min-width: 0; flex: 1 1 8em; }
+.option-editor .price-input { max-width: 5em; }
 .budget input { max-width: 160px; }
 
 .order-list { display: grid; gap: 6px; }
