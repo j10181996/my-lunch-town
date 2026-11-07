@@ -9,6 +9,7 @@ import type {
   StoreOrderStatus,
 } from "../../shared/contracts";
 import { describeFulfillment, validateDeliveryRules } from "../../shared/delivery";
+import { DIET_TAGS, dietTagsOf } from "../../shared/diet";
 import { DEFAULT_MEAL_ART, MEAL_ART, styleOf } from "../../shared/town";
 import { storeGateway as gw } from "../adapters/http";
 import { ApiError, errorText } from "../api";
@@ -301,7 +302,7 @@ function MealEditor({
       priceTwd: Number(d.price),
       imageAssetKey: d.imageAssetKey,
       available: d.available,
-      tags: d.tags.split(/[\s,，、]+/).filter(Boolean),
+      tags: splitTags(d.tags),
     };
   }
 
@@ -336,6 +337,7 @@ function MealEditor({
       <div className="stack" style={{ gap: 4 }}>
         <input type="text" value={d.name} maxLength={16} placeholder="餐點名稱" aria-label="餐點名稱" onChange={(e) => setD({ ...d, name: e.target.value })} />
         <input type="text" value={d.tags} placeholder="標籤（空白分隔，選填）" aria-label="標籤" onChange={(e) => setD({ ...d, tags: e.target.value })} style={{ fontSize: 13, padding: "3px 8px" }} />
+        <DietTagPicker tags={d.tags} onChange={(tags) => setD({ ...d, tags })} />
       </div>
       <div>
         <input
@@ -675,4 +677,28 @@ function DeliverySettings({ profile, onSaved }: { profile: StoreProfile; onSaved
     <button className="btn green" disabled={busy}>{busy ? "儲存中…" : "儲存外送設定"}</button>
     <small className="muted">修改只套用到之後開的團。</small>
   </form>;
+}
+
+function splitTags(text: string) {
+  return [...new Set(text.split(/[\s,，、]+/).filter(Boolean))];
+}
+
+/** 標準飲食標籤：勾選即寫入標籤欄，團員可依此篩選。 */
+function DietTagPicker({ tags, onChange }: { tags: string; onChange(tags: string): void }) {
+  const list = splitTags(tags);
+  const present = dietTagsOf(list);
+  return (
+    <div className="chips diet-picker" role="group" aria-label="飲食標籤">
+      {DIET_TAGS.map((tag) => (
+        <label key={tag} className={`chip${present.has(tag) ? " on" : ""}`}>
+          <input type="checkbox" checked={present.has(tag)} onChange={() => {
+            // 取消時一併移除同義的舊寫法（例如「素」），避免篩選仍判定為素食。
+            const next = present.has(tag) ? list.filter((t) => !dietTagsOf([t]).has(tag)) : [...list, tag];
+            onChange(next.join(" "));
+          }} />
+          {tag}
+        </label>
+      ))}
+    </div>
+  );
 }

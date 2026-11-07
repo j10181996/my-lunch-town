@@ -249,6 +249,23 @@ describe("店家端", () => {
     expect(created.snapshot.catalog.meals.some((m: { name: string }) => m.name === "咖哩飯")).toBe(true);
   });
 
+  it("飲食標籤：最多 8 個、去除重複，開團凍結菜單帶出標籤", async () => {
+    const { c, storeId } = await newStore(client(), 4);
+    const tags = ["素食", "全素", "含堅果", "招牌", "素食", "小辣", "限量", "新品", "外帶"];
+    expect((await c.post(`/api/stores/${storeId}/meals`, {
+      name: "素咖哩", priceTwd: 120, imageAssetKey: "meal-curry-rice", available: true, tags: [...tags, "第十個"],
+    })).status).toBe(400);
+    const add = await c.post(`/api/stores/${storeId}/meals`, {
+      name: "素咖哩", priceTwd: 120, imageAssetKey: "meal-curry-rice", available: true, tags,
+    });
+    expect(add.status).toBe(200);
+    const meal = add.body.meals.find((m: { name: string }) => m.name === "素咖哩");
+    expect(meal.tags).toEqual(["素食", "全素", "含堅果", "招牌", "小辣", "限量", "新品", "外帶"]);
+    await c.post(`/api/stores/${storeId}/status`, { status: "open" });
+    const { created } = await openRoom();
+    expect(created.snapshot.catalog.meals.find((m: { id: string }) => m.id === meal.id).tags).toEqual(meal.tags);
+  });
+
   it("改價只影響之後開的團；舊團照舊價計算與點餐", async () => {
     const shop = client();
     const claim = await shop.post("/api/stores/claim", { manageKey: "demo-store-af" });

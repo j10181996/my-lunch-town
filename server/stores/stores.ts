@@ -193,6 +193,9 @@ export function setStatus(db: Db, sessionId: string, storeId: string, status: un
   });
 }
 
+/** 飲食標籤（素食、辣、過敏原…）與店家自訂標籤共用欄位，上限因此放寬到 8 個。 */
+const MAX_MEAL_TAGS = 8;
+
 function parseMeal(input: Partial<MealInput>, base?: MealInput): MealInput {
   const name = input.name !== undefined ? text(input.name, "餐點名稱", 1, 16) : base?.name;
   const priceTwd = input.priceTwd !== undefined ? intInRange(input.priceTwd, "價格", 0, 9999) : base?.priceTwd;
@@ -205,8 +208,10 @@ function parseMeal(input: Partial<MealInput>, base?: MealInput): MealInput {
   const available = input.available !== undefined ? input.available === true : (base?.available ?? true);
   let tags = base?.tags ?? [];
   if (input.tags !== undefined) {
-    if (!Array.isArray(input.tags) || input.tags.length > 5) throw err.invalid("標籤最多 5 個");
-    tags = input.tags.map((t) => text(t, "標籤", 1, 8));
+    // 先擋住過長陣列，再去除重複後計算數量上限。
+    if (!Array.isArray(input.tags) || input.tags.length > MAX_MEAL_TAGS * 2) throw err.invalid(`標籤最多 ${MAX_MEAL_TAGS} 個`);
+    tags = [...new Set(input.tags.map((t) => text(t, "標籤", 1, 8)))];
+    if (tags.length > MAX_MEAL_TAGS) throw err.invalid(`標籤最多 ${MAX_MEAL_TAGS} 個`);
   }
   if (name === undefined || priceTwd === undefined) throw err.invalid("餐點需要名稱與價格");
   return { name, priceTwd, imageAssetKey, available, tags };
