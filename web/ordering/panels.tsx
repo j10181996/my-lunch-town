@@ -1,11 +1,13 @@
 import { useState } from "react";
 import type { Meal, OwnerSummary, RoomSnapshot, Store } from "../../shared/contracts";
+import { budgetStatus, DIET_FILTERS, dietTagsOf, matchesDietFilters } from "../../shared/diet";
 import { describeDelivery, describeFulfillment, distanceKm, evaluateDelivery } from "../../shared/delivery";
 import { styleOf } from "../../shared/town";
 import { drawIcon } from "../art/scenes";
 import { ctxOf, makeCanvas } from "../art/pixel";
 import type { Pending } from "../state/useRoom";
 import { MealImg, money, OrderStatusBadge } from "../ui";
+import { useOrderPrefs } from "./preferences";
 
 export interface OrderingProps {
   snap: RoomSnapshot;
@@ -36,7 +38,12 @@ export function MenuPanel({
   store,
   focusMealId,
 }: OrderingProps & { store: Store; focusMealId?: string | null }) {
-  const meals = snap.catalog.meals.filter((m) => m.storeId === store.id);
+  const prefs = useOrderPrefs();
+  const storeMeals = snap.catalog.meals.filter((m) => m.storeId === store.id);
+  // 已點的餐點即使不符合篩選也保留，才能減量。
+  const meals = storeMeals.filter((m) => qtyOf(snap, m.id) > 0 || matchesDietFilters(m.tags, prefs.filters));
+  const hidden = storeMeals.length - meals.length;
+  const budget = budgetStatus(snap.myTotalTwd, prefs.budgetTwd);
   return (
     <section className="stack" aria-label={`${store.name} 菜單`}>
       <div className="shop-head">
@@ -47,13 +54,69 @@ export function MenuPanel({
           <div className="muted">選好餐點，按 ＋1 加入訂單</div>
         </div>
       </div>
+      <DietFilterBar />
+      {budget && <BudgetBanner budget={budget} />}
       <div className="menu">
         {meals.map((m) => (
-          <MealRow key={m.id} focused={m.id === focusMealId} meal={m} qty={qtyOf(snap, m.id)} pending={pending[m.id]} canEdit={canEdit} change={change} />
+          <MealRow key={m.id} focused={m.id === focusMealId} meal={m} qty={qtyOf(snap, m.id)} pending={pending[m.id]} canEdit={canEdit} change={change}
+            overBudget={!!budget && m.priceTwd > Math.max(0, budget.remainingTwd)} />
         ))}
-        {meals.length === 0 && <div className="muted">這家店在本團沒有可點的餐點。</div>}
+        {storeMeals.length === 0 && <div className="muted">這家店在本團沒有可點的餐點。</div>}
+        {storeMeals.length > 0 && meals.length === 0 && <div className="muted">沒有符合篩選條件的餐點。</div>}
+        {hidden > 0 && <div className="row diet-hidden">
+          <span className="muted">已依篩選隱藏 {hidden} 道</span>
+          <button type="button" className="btn small" onClick={prefs.clearFilters}>顯示全部</button>
+        </div>}
       </div>
     </section>
+  );
+}
+
+/** 飲食篩選：依店家標示，過敏者仍須向店家確認。 */
+function DietFilterBar() {
+  const prefs = useOrderPrefs();
+  return (
+    <fieldset className="diet-filter">
+      <legend>飲食篩選</legend>
+      <div className="chips">
+        {DIET_FILTERS.map((f) => (
+          <label key={f.key} className={`chip${prefs.filters.includes(f.key) ? " on" : ""}`}>
+            <input type="checkbox" checked={prefs.filters.includes(f.key)} onChange={() => prefs.toggleFilter(f.key)} />
+            {f.label}
+          </label>
+        ))}
+      </div>
+      {prefs.filters.length > 0 && <small className="muted">依店家標示篩選；有過敏請直接向店家確認。</small>}
+    </fieldset>
+  );
+}
+
+function BudgetBanner({ budget }: { budget: NonNullable<ReturnType<typeof budgetStatus>> }) {
+  return budget.over ? (
+    <div className="banner error" role="status">已超出預算 {money(-budget.remainingTwd)}（預算 {money(budget.budgetTwd)}）</div>
+  ) : (
+    <div className="banner ok" role="status">預算還剩 {money(budget.remainingTwd)}</div>
+  );
+}
+
+/** 預算只存在本機，點餐超過時在菜單與我的訂單提醒。 */
+function BudgetEditor({ totalTwd }: { totalTwd: number }) {
+  const prefs = useOrderPrefs();
+  const [draft, setDraft] = useState(prefs.budgetTwd ? String(prefs.budgetTwd) : "");
+  const budget = budgetStatus(totalTwd, prefs.budgetTwd);
+  return (
+    <div className="stack budget">
+      <label className="field">
+        我的預算 <small>選填，只存在這台裝置</small>
+        <input type="text" inputMode="numeric" placeholder="例如 150" value={draft}
+          onChange={(e) => {
+            const value = e.target.value.replace(/[^\d]/g, "").slice(0, 5);
+            setDraft(value);
+            prefs.setBudget(value ? Number(value) || null : null);
+          }} />
+      </label>
+      {budget && <BudgetBanner budget={budget} />}
+    </div>
   );
 }
 
@@ -64,8 +127,10 @@ function MealRow({
   pending,
   canEdit,
   change,
+  overBudget,
 }: {
   focused?: boolean;
+  overBudget?: boolean;
   meal: Meal;
   qty: number;
   pending?: Pending;
@@ -86,10 +151,11 @@ function MealRow({
         <div className="price">{money(meal.priceTwd)}</div>
         <div>
           {meal.tags.map((t) => (
-            <span className="tag" key={t}>
+            <span className={`tag${dietTagsOf([t]).size > 0 ? " diet" : ""}`} key={t}>
               {t}
             </span>
           ))}
+          {overBudget && <span className="tag over-budget">超出預算</span>}
         </div>
       </div>
       <div className="stack" style={{ justifyItems: "end" }}>
@@ -161,6 +227,7 @@ export function MyOrder({ snap, pending, canEdit, change }: OrderingProps) {
         <span>共 {snap.myTotalQuantity} 份</span>
         <span className="money">{money(snap.myTotalTwd)}</span>
       </div>
+      <BudgetEditor totalTwd={snap.myTotalTwd} />
     </section>
   );
 }

@@ -107,6 +107,17 @@ label.field small { font-weight: 400; color: var(--sub); }
 .qty-ctrl { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
 .qty { min-width: 22px; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
 .tag { display: inline-block; font-size: 12px; background: #fff; border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; margin-right: 4px; }
+.tag.diet { background: var(--green-bg); border-color: var(--green); color: #2a6a35; }
+.tag.over-budget { background: var(--err-bg); border-color: var(--accent-ink); color: var(--accent-ink); }
+.diet-filter { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 4px; }
+.diet-filter legend { font-weight: 700; font-size: 14px; padding: 0; margin-bottom: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 2px 12px; border: 2px solid var(--line); border-radius: 99px; background: #fff; font-size: 14px; cursor: pointer; }
+.chip input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); }
+.chip.on { border-color: var(--green); background: var(--green-bg); font-weight: 700; }
+.chip:focus-within { outline: 3px solid #f2b631; outline-offset: 1px; }
+.diet-hidden { justify-content: space-between; flex-wrap: wrap; }
+.budget input { max-width: 160px; }
 
 .order-list { display: grid; gap: 6px; }
 .order-line { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
@@ -285,3 +296,4 @@ label.field small { font-weight: 400; color: var(--sub); }
   .stage .back { top: 8px; left: 6px; font-size: 11px; padding: 8px 6px; }
   .friend-interact { font-size: 12px; }
 }
+.diet-picker .chip { min-height: 30px; padding: 0 8px; font-size: 13px; border-width: 1px; }
