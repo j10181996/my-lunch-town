@@ -103,9 +103,11 @@ export function TownWalk() {
                     </div>
                   ))}
                 </div>
-                <button className="btn primary big" disabled={store.resting} onClick={() => startRoom(store.id)}>
-                  {store.resting ? "休息中，暫時不能用這家開團" : `用「${store.name}」開團`}
-                </button>
+                <div className="walk-cta">
+                  <button className="btn primary big" disabled={store.resting} onClick={() => startRoom(store.id)}>
+                    {store.resting ? "休息中，暫時不能用這家開團" : `用「${store.name}」開團`}
+                  </button>
+                </div>
               </section>
             ) : (
               <>
