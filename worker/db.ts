@@ -5,9 +5,9 @@ import { migrate } from "../server/schema/migrate";
 import initSqlJs, { type Database, type SqlValue } from "sql.js/dist/sql-wasm-browser.js";
 import sqliteWasm from "./sqlite.wasm";
 import seedBytes from "./seed.bin";
-import type { Db } from "../server/db";
-export { AppError, err, hashKey, withWriteTx } from "../server/db-shared";
-export type { Db } from "../server/db";
+import { fromSync, type SyncDb } from "../server/db-shared";
+export { AppError, err, hashKey, withSyncTx, withWriteTx } from "../server/db-shared";
+export type { Db, SyncDb, Statement } from "../server/db-shared";
 
 // Workers receive a precompiled WASM module: no runtime compilation or filesystem.
 const sqlite = initSqlJs({
@@ -38,7 +38,7 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
       statement.free();
     }
   };
-  const db = {
+  const sync = {
     exec(sql: string) { raw.exec(sql); },
     prepare(sql: string) {
       return {
@@ -50,13 +50,14 @@ export async function openSnapshot(bytes?: ArrayBuffer | number[]) {
         },
       };
     },
-  } as unknown as Db;
+  } as unknown as SyncDb;
   // 與 Node 的 openDb 走同一個遷移入口；舊 image 會先補齊到基線（含外送與收款欄位）。
   // seed.bin 由台中種子建立，舊 image 補外送欄位時也以它回填。
-  migrate(db, { legacySeedStores: () => taichung.stores });
-  migrateTaichungExpansion(db);
-  backfillSeedLocations(db);
-  return { db, raw };
+  migrate(sync, { legacySeedStores: () => taichung.stores });
+  migrateTaichungExpansion(sync);
+  backfillSeedLocations(sync);
+  // 每個請求各自開一份 image，不會有並發交易，不需要交易排程。
+  return { db: fromSync(sync), sync, raw };
 }
 
 export function exportSnapshot(raw: Database): Uint8Array {

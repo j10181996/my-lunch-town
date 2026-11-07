@@ -9,8 +9,8 @@ export const MY_ROOMS_LIMIT = 30;
  * 綁定 ChatGPT 帳號後（#38）同一帳號跨裝置得到同一身分，歷史自然一致。
  * 只回傳自己的金額，不含其他人的明細或收款狀態。
  */
-export function myRooms(db: Db, sessionId: string): MyRoomSummary[] {
-  const rows = db.prepare(
+export async function myRooms(db: Db, sessionId: string): Promise<MyRoomSummary[]> {
+  const { results: rows } = await db.prepare(
     `SELECT r.id, r.title, r.status, r.created_at, r.closed_at, r.delivery_x, r.delivery_y, r.delivery_address,
             r.delivery_lat, r.delivery_lng, m.id AS member_id, m.role, m.nickname, m.avatar_id,
             (SELECT COUNT(*) FROM members x WHERE x.room_id = r.id) AS member_count,
@@ -20,14 +20,15 @@ export function myRooms(db: Db, sessionId: string): MyRoomSummary[] {
      WHERE m.session_id = ?
      ORDER BY r.created_at DESC, r.id
      LIMIT ?`,
-  ).all(sessionId, MY_ROOMS_LIMIT) as Array<{
+  ).bind(sessionId, MY_ROOMS_LIMIT).all<{
     id: string; title: string; status: "open" | "closed"; created_at: number; closed_at: number | null;
     delivery_x: number | null; delivery_y: number | null; delivery_address: string | null;
     delivery_lat: number | null; delivery_lng: number | null; member_id: string; role: "owner" | "participant";
     nickname: string; avatar_id: string; member_count: number; my_total_twd: number;
-  }>;
+  }>();
   const stores = db.prepare("SELECT store_id, name FROM room_stores WHERE room_id = ? ORDER BY sort_order");
-  return rows.map((r) => ({
+  const out: MyRoomSummary[] = [];
+  for (const r of rows) out.push({
     id: r.id,
     title: r.title,
     status: r.status,
@@ -41,6 +42,7 @@ export function myRooms(db: Db, sessionId: string): MyRoomSummary[] {
     deliveryPoint: r.delivery_x === null ? null : { x: r.delivery_x, y: r.delivery_y! },
     deliveryLocation: r.delivery_lat == null ? null : { lat: r.delivery_lat, lng: r.delivery_lng! },
     deliveryAddress: r.delivery_address ?? null,
-    stores: (stores.all(r.id) as Array<{ store_id: string; name: string }>).map((s) => ({ id: s.store_id, name: s.name })),
-  }));
+    stores: (await stores.bind(r.id).all<{ store_id: string; name: string }>()).results.map((s) => ({ id: s.store_id, name: s.name })),
+  });
+  return out;
 }

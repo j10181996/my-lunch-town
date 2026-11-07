@@ -92,7 +92,7 @@ export const api = new Hono<{ Bindings: ApiBindings }>();
 
 api.use("*", async (c, next) => {
   if (!c.req.path.startsWith(MEAL_IMAGES_PREFIX)) {
-    c.env.ctx.db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").run(sid(c), Date.now());
+    await c.env.ctx.db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").bind(sid(c), Date.now()).run();
   }
   await next();
   if (!c.res.headers.has("cache-control")) c.res.headers.set("cache-control", "private, no-store");
@@ -108,33 +108,33 @@ const storeId = (c: C) => c.req.param("storeId")!;
 const mealId = (c: C) => c.req.param("mealId")!;
 
 // —— 社交與派對 ——
-api.get("/api/management/stores", (c) => c.json({ scope: "all", stores: listManagementStores(db(c), sid(c)) }));
-api.post("/api/rooms/:id/emote", (c) => c.json(sendEmote(ctx(c), sid(c), id(c), body(c))));
-api.post("/api/rooms/:id/recommend", (c) => c.json(recommendMeal(ctx(c), sid(c), id(c), body(c))));
-api.post("/api/rooms/:id/like", (c) => c.json(likeStore(ctx(c), sid(c), id(c), body(c))));
-api.put("/api/rooms/:id/social", (c) => c.json(setSocial(ctx(c), sid(c), id(c), body(c))));
-api.put("/api/rooms/:id/lunch-ready", (c) => c.json(setLunchReady(ctx(c), sid(c), id(c), body(c))));
+api.get("/api/management/stores", async (c) => c.json({ scope: "all", stores: await listManagementStores(db(c), sid(c)) }));
+api.post("/api/rooms/:id/emote", async (c) => c.json(await sendEmote(ctx(c), sid(c), id(c), body(c))));
+api.post("/api/rooms/:id/recommend", async (c) => c.json(await recommendMeal(ctx(c), sid(c), id(c), body(c))));
+api.post("/api/rooms/:id/like", async (c) => c.json(await likeStore(ctx(c), sid(c), id(c), body(c))));
+api.put("/api/rooms/:id/social", async (c) => c.json(await setSocial(ctx(c), sid(c), id(c), body(c))));
+api.put("/api/rooms/:id/lunch-ready", async (c) => c.json(await setLunchReady(ctx(c), sid(c), id(c), body(c))));
 
 // —— 團購 ——
-api.post("/api/rooms", (c) => c.json(createRoom(ctx(c), sid(c), body(c))));
-api.get("/api/rooms/:id/public", (c) => c.json(getPublicInfo(db(c), id(c))));
-api.post("/api/rooms/:id/join", (c) => c.json(joinRoom(ctx(c), sid(c), id(c), body(c))));
-api.get("/api/rooms/:id/snapshot", (c) => c.json(buildSnapshot(db(c), id(c), sid(c))));
-api.post("/api/rooms/:id/order-delta", (c) => c.json(changeQuantity(ctx(c), sid(c), id(c), body(c))));
-api.post("/api/rooms/:id/close", (c) => c.json(closeRoom(ctx(c), sid(c), id(c), field(c, "requestId"))));
-api.put("/api/rooms/:id/deadline", (c) => c.json(setDeadline(ctx(c), sid(c), id(c), body(c))));
-api.post("/api/rooms/:id/expire", (c) => c.json(expireRoom(ctx(c), sid(c), id(c))));
-api.get("/api/rooms/:id/summary", (c) => c.json(getOwnerSummary(db(c), sid(c), id(c))));
-api.get("/api/rooms/:id/export", (c) =>
-  c.text(exportOrder(db(c), sid(c), id(c)), 200, { "content-type": "text/plain; charset=utf-8" }));
+api.post("/api/rooms", async (c) => c.json(await createRoom(ctx(c), sid(c), body(c))));
+api.get("/api/rooms/:id/public", async (c) => c.json(await getPublicInfo(db(c), id(c))));
+api.post("/api/rooms/:id/join", async (c) => c.json(await joinRoom(ctx(c), sid(c), id(c), body(c))));
+api.get("/api/rooms/:id/snapshot", async (c) => c.json(await buildSnapshot(db(c), id(c), sid(c))));
+api.post("/api/rooms/:id/order-delta", async (c) => c.json(await changeQuantity(ctx(c), sid(c), id(c), body(c))));
+api.post("/api/rooms/:id/close", async (c) => c.json(await closeRoom(ctx(c), sid(c), id(c), field(c, "requestId"))));
+api.put("/api/rooms/:id/deadline", async (c) => c.json(await setDeadline(ctx(c), sid(c), id(c), body(c))));
+api.post("/api/rooms/:id/expire", async (c) => c.json(await expireRoom(ctx(c), sid(c), id(c))));
+api.get("/api/rooms/:id/summary", async (c) => c.json(await getOwnerSummary(db(c), sid(c), id(c))));
+api.get("/api/rooms/:id/export", async (c) =>
+  c.text(await exportOrder(db(c), sid(c), id(c)), 200, { "content-type": "text/plain; charset=utf-8" }));
 
 // —— 收款 ——
-api.put("/api/rooms/:id/payment-info", (c) => c.json(setPaymentInfo(ctx(c), sid(c), id(c), body(c))));
-api.post("/api/rooms/:id/payment-info/send", (c) => c.json(sendPaymentInfo(ctx(c), sid(c), id(c))));
-api.post("/api/rooms/:id/payment/remind", (c) => c.json(remindUnpaid(ctx(c), sid(c), id(c))));
-api.post("/api/rooms/:id/payment/report", (c) => c.json(reportPayment(ctx(c), sid(c), id(c))));
-api.post("/api/rooms/:id/payment/:memberId/confirm", (c) =>
-  c.json(confirmPayment(ctx(c), sid(c), id(c), c.req.param("memberId")!, body(c))));
+api.put("/api/rooms/:id/payment-info", async (c) => c.json(await setPaymentInfo(ctx(c), sid(c), id(c), body(c))));
+api.post("/api/rooms/:id/payment-info/send", async (c) => c.json(await sendPaymentInfo(ctx(c), sid(c), id(c))));
+api.post("/api/rooms/:id/payment/remind", async (c) => c.json(await remindUnpaid(ctx(c), sid(c), id(c))));
+api.post("/api/rooms/:id/payment/report", async (c) => c.json(await reportPayment(ctx(c), sid(c), id(c))));
+api.post("/api/rooms/:id/payment/:memberId/confirm", async (c) =>
+  c.json(await confirmPayment(ctx(c), sid(c), id(c), c.req.param("memberId")!, body(c))));
 
 // —— 餐點圖片 ——
 api.post("/api/stores/:storeId/images", async (c) => c.json(await uploadMealImage(ctx(c), sid(c), storeId(c), body(c))));
@@ -146,26 +146,26 @@ api.get("/api/meal-images/:imageId", async (c) => {
 });
 
 // —— 店家 ——
-api.put("/api/stores/:storeId/hours", (c) => c.json(setHours(db(c), sid(c), storeId(c), body(c))));
-api.put("/api/stores/:storeId/delivery", (c) => c.json(setDelivery(db(c), sid(c), storeId(c), body(c))));
-api.put("/api/stores/:storeId/location", (c) => c.json(setLocation(db(c), sid(c), storeId(c), body(c))));
+api.put("/api/stores/:storeId/hours", async (c) => c.json(await setHours(db(c), sid(c), storeId(c), body(c))));
+api.put("/api/stores/:storeId/delivery", async (c) => c.json(await setDelivery(db(c), sid(c), storeId(c), body(c))));
+api.put("/api/stores/:storeId/location", async (c) => c.json(await setLocation(db(c), sid(c), storeId(c), body(c))));
 // GET：Worker 不寫回快照，衝突重試也不會重複打外部服務。
 api.get("/api/geocode/:address", async (c) => c.json(await geocodeAddress(c.req.param("address")!)));
-api.get("/api/stores/:storeId/likes", (c) => c.json(storeLikes(db(c), sid(c), storeId(c))));
-api.get("/api/stores/:storeId/orders", (c) => c.json(listStoreOrders(db(c), sid(c), storeId(c))));
-api.post("/api/stores/:storeId/orders/:orderId/status", (c) =>
-  c.json(updateStoreOrderStatus(ctx(c), sid(c), storeId(c), c.req.param("orderId")!, body(c))));
-api.get("/api/town", (c) => c.json(getTown(db(c))));
-api.get("/api/town/catalog", (c) => c.json(getTownCatalog(db(c))));
-api.get("/api/my/stores", (c) => c.json(myStores(db(c), sid(c))));
-api.get("/api/my/rooms", (c) => c.json(myRooms(db(c), sid(c))));
-api.post("/api/stores", (c) => c.json(createStore(db(c), sid(c), body(c))));
-api.post("/api/stores/claim", (c) => c.json(claimStore(db(c), sid(c), field(c, "manageKey"), c.env.demoKey)));
-api.get("/api/stores/:storeId", (c) => c.json(getStore(db(c), sid(c), storeId(c))));
-api.patch("/api/stores/:storeId", (c) => c.json(updateStore(db(c), sid(c), storeId(c), body(c))));
-api.post("/api/stores/:storeId/status", (c) => c.json(setStatus(db(c), sid(c), storeId(c), field(c, "status"))));
-api.post("/api/stores/:storeId/meals", (c) => c.json(addMeal(db(c), sid(c), storeId(c), body(c))));
-api.patch("/api/stores/:storeId/meals/:mealId", (c) => c.json(updateMeal(db(c), sid(c), storeId(c), mealId(c), body(c))));
-api.post("/api/stores/:storeId/meals/:mealId/move", (c) =>
-  c.json(moveMeal(db(c), sid(c), storeId(c), mealId(c), field(c, "direction"))));
-api.delete("/api/stores/:storeId/meals/:mealId", (c) => c.json(deleteMeal(db(c), sid(c), storeId(c), mealId(c))));
+api.get("/api/stores/:storeId/likes", async (c) => c.json(await storeLikes(db(c), sid(c), storeId(c))));
+api.get("/api/stores/:storeId/orders", async (c) => c.json(await listStoreOrders(db(c), sid(c), storeId(c))));
+api.post("/api/stores/:storeId/orders/:orderId/status", async (c) =>
+  c.json(await updateStoreOrderStatus(ctx(c), sid(c), storeId(c), c.req.param("orderId")!, body(c))));
+api.get("/api/town", async (c) => c.json(await getTown(db(c))));
+api.get("/api/town/catalog", async (c) => c.json(await getTownCatalog(db(c))));
+api.get("/api/my/stores", async (c) => c.json(await myStores(db(c), sid(c))));
+api.get("/api/my/rooms", async (c) => c.json(await myRooms(db(c), sid(c))));
+api.post("/api/stores", async (c) => c.json(await createStore(db(c), sid(c), body(c))));
+api.post("/api/stores/claim", async (c) => c.json(await claimStore(db(c), sid(c), field(c, "manageKey"), c.env.demoKey)));
+api.get("/api/stores/:storeId", async (c) => c.json(await getStore(db(c), sid(c), storeId(c))));
+api.patch("/api/stores/:storeId", async (c) => c.json(await updateStore(db(c), sid(c), storeId(c), body(c))));
+api.post("/api/stores/:storeId/status", async (c) => c.json(await setStatus(db(c), sid(c), storeId(c), field(c, "status"))));
+api.post("/api/stores/:storeId/meals", async (c) => c.json(await addMeal(db(c), sid(c), storeId(c), body(c))));
+api.patch("/api/stores/:storeId/meals/:mealId", async (c) => c.json(await updateMeal(db(c), sid(c), storeId(c), mealId(c), body(c))));
+api.post("/api/stores/:storeId/meals/:mealId/move", async (c) =>
+  c.json(await moveMeal(db(c), sid(c), storeId(c), mealId(c), field(c, "direction"))));
+api.delete("/api/stores/:storeId/meals/:mealId", async (c) => c.json(await deleteMeal(db(c), sid(c), storeId(c), mealId(c))));

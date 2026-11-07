@@ -1,9 +1,10 @@
 import type { Db } from "../db";
 
 /** 自己在這團已按讚的店家，放進快照讓畫面顯示「已按讚」（放這裡避免 rooms 與 likes 互相匯入）。 */
-export function likedStoreIds(db: Db, roomId: string, memberId: string): string[] {
-  return (db.prepare("SELECT store_id FROM store_likes WHERE room_id = ? AND member_id = ? ORDER BY store_id")
-    .all(roomId, memberId) as Array<{ store_id: string }>).map((r) => r.store_id);
+export async function likedStoreIds(db: Db, roomId: string, memberId: string): Promise<string[]> {
+  const { results } = await db.prepare("SELECT store_id FROM store_likes WHERE room_id = ? AND member_id = ? ORDER BY store_id")
+    .bind(roomId, memberId).all<{ store_id: string }>();
+  return results.map((r) => r.store_id);
 }
 
 /**

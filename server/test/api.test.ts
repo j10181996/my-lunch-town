@@ -9,7 +9,7 @@ import { haversineKm } from "../../shared/geo";
 import { lotDoor } from "../../shared/town";
 import { createRoom } from "../rooms/rooms";
 import { changeQuantity, closeRoom } from "../orders/orders";
-import { SAMPLE_SEED, TAICHUNG_SEED, openDb } from "../db";
+import { SAMPLE_SEED, TAICHUNG_SEED, asyncDb, openDb } from "../db";
 import { noopEvents, type Ctx } from "../context";
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
@@ -24,7 +24,7 @@ beforeEach(async () => {
   changes = [];
   storeChanges = [];
   const ctx: Ctx = {
-    db: openDb(":memory:", SAMPLE_SEED),
+    db: asyncDb(openDb(":memory:", SAMPLE_SEED)),
     events: {
       roomChanged: (roomId, revision) => changes.push({ roomId, revision }),
       bubble() {},
@@ -417,7 +417,7 @@ describe("開團指定店家", () => {
 describe("台中店家種子資料", () => {
   it("十四家店都能開成團，名稱、價格、數量都符合店家端的驗證規則", async () => {
     const ctx: Ctx = {
-      db: openDb(":memory:", TAICHUNG_SEED),
+      db: asyncDb(openDb(":memory:", TAICHUNG_SEED)),
       events: { roomChanged() {}, bubble() {}, storeOrdersChanged() {} },
     };
     const local = await buildApp({ ctx });
@@ -574,47 +574,47 @@ describe("收單送到店家與接單流程", () => {
 });
 
 
-it("送單失敗回滾整筆收單，成功通知時已可讀取提交後資料", () => {
-  const db = openDb(":memory:", SAMPLE_SEED);
+it("送單失敗回滾整筆收單，成功通知時已可讀取提交後資料", async () => {
+  const raw = openDb(":memory:", SAMPLE_SEED);
   const notified: string[] = [];
   let closing = false;
-  const ctx: Ctx = { db, events: {
+  const ctx: Ctx = { db: asyncDb(raw), events: {
     roomChanged(roomId, revision) {
       if (!closing) return;
-      expect(db.isTransaction).toBe(false);
-      expect(db.prepare("SELECT status, revision FROM rooms WHERE id = ?").get(roomId))
+      expect(raw.isTransaction).toBe(false);
+      expect(raw.prepare("SELECT status, revision FROM rooms WHERE id = ?").get(roomId))
         .toMatchObject({ status: "closed", revision });
-      expect(db.prepare("SELECT COUNT(*) AS n FROM store_orders WHERE room_id = ?").get(roomId))
+      expect(raw.prepare("SELECT COUNT(*) AS n FROM store_orders WHERE room_id = ?").get(roomId))
         .toMatchObject({ n: 2 });
       notified.push("room");
     },
     storeOrdersChanged(storeId) {
-      expect(db.isTransaction).toBe(false);
-      expect(db.prepare("SELECT status FROM store_orders WHERE store_id = ?").get(storeId))
+      expect(raw.isTransaction).toBe(false);
+      expect(raw.prepare("SELECT status FROM store_orders WHERE store_id = ?").get(storeId))
         .toMatchObject({ status: "sent" });
       notified.push(storeId);
     },
     bubble() {},
   } };
   try {
-    const { snapshot } = createRoom(ctx, "test-session", { title: "原子送單", nickname: "阿凱", requestId: rid(), storeIds: SAMPLE_STORE_IDS });
+    const { snapshot } = await createRoom(ctx, "test-session", { title: "原子送單", nickname: "阿凱", requestId: rid(), storeIds: SAMPLE_STORE_IDS });
     const roomId = snapshot.room.id;
-    changeQuantity(ctx, "test-session", roomId, { mealId: "meal-af-chicken", delta: 1, requestId: rid() });
-    changeQuantity(ctx, "test-session", roomId, { mealId: "meal-tree-dry", delta: 1, requestId: rid() });
-    const before = db.prepare("SELECT status, revision, closed_at FROM rooms WHERE id = ?").get(roomId);
+    await changeQuantity(ctx, "test-session", roomId, { mealId: "meal-af-chicken", delta: 1, requestId: rid() });
+    await changeQuantity(ctx, "test-session", roomId, { mealId: "meal-tree-dry", delta: 1, requestId: rid() });
+    const before = raw.prepare("SELECT status, revision, closed_at FROM rooms WHERE id = ?").get(roomId);
     // 第二家店寫入失敗，第一家快照及收單狀態也必須一同回滾。
-    db.exec(`CREATE TRIGGER fail_store_order BEFORE INSERT ON store_orders
+    raw.exec(`CREATE TRIGGER fail_store_order BEFORE INSERT ON store_orders
       WHEN NEW.store_id = 'store-tree' BEGIN SELECT RAISE(ABORT, 'test send failure'); END;`);
     closing = true;
-    expect(() => closeRoom(ctx, "test-session", roomId, rid())).toThrow("test send failure");
-    expect(db.prepare("SELECT status, revision, closed_at FROM rooms WHERE id = ?").get(roomId)).toEqual(before);
-    expect(db.prepare("SELECT COUNT(*) AS n FROM store_orders").get()).toMatchObject({ n: 0 });
+    await expect(closeRoom(ctx, "test-session", roomId, rid())).rejects.toThrow("test send failure");
+    expect(raw.prepare("SELECT status, revision, closed_at FROM rooms WHERE id = ?").get(roomId)).toEqual(before);
+    expect(raw.prepare("SELECT COUNT(*) AS n FROM store_orders").get()).toMatchObject({ n: 0 });
     expect(notified).toEqual([]);
-    db.exec("DROP TRIGGER fail_store_order");
-    closeRoom(ctx, "test-session", roomId, rid());
+    raw.exec("DROP TRIGGER fail_store_order");
+    await closeRoom(ctx, "test-session", roomId, rid());
     expect(notified).toEqual(["room", "store-af", "store-tree"]);
   } finally {
-    db.close();
+    raw.close();
   }
 });
 
@@ -864,7 +864,7 @@ describe("真實經緯度外送", () => {
 
 describe("展示用後台碼", () => {
   async function appWith(demoKey?: string) {
-    const ctx: Ctx = { db: openDb(":memory:", SAMPLE_SEED), events: noopEvents };
+    const ctx: Ctx = { db: asyncDb(openDb(":memory:", SAMPLE_SEED)), events: noopEvents };
     return buildApp({ ctx, demoKey });
   }
   async function call(local: Hono, cookie: string, method: "GET" | "POST", url: string, payload?: unknown) {

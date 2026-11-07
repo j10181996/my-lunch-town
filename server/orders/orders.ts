@@ -5,7 +5,7 @@ import { MAX_QTY_PER_MEAL } from "../../shared/town";
 import { lineKeyOf, normalizeNote, optionKeyOf, parseOptionGroups, resolveChoices } from "../../shared/meal-options";
 import type { Ctx } from "../context";
 import { err, withWriteTx, type Db } from "../db";
-import { buildSnapshot, bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems, requireMember } from "../rooms/rooms";
+import { buildSnapshot, bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems, readConsistently, requireMember } from "../rooms/rooms";
 import { paymentStatus } from "../rooms/payments";
 import { closeInTx, deadlinePassed } from "../rooms/deadline";
 import { requestId as checkRequestId } from "../util";
@@ -28,21 +28,21 @@ function orderDigest(input: OrderDeltaInput): string {
  * 規格第 10 節：一次 +1/-1 的交易。
  * 順序：身分 → 進入寫入交易 → 去重（早於收單檢查）→ 房間/餐點/delta 驗證 → 計算 → 寫入並遞增 revision → 提交後通知。
  */
-export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, input: OrderDeltaInput): OrderAck {
+export async function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, input: OrderDeltaInput): Promise<OrderAck> {
   const { db } = ctx;
   const reqId = checkRequestId(input?.requestId);
-  requireMember(db, roomId, sessionId);
+  // 身分檢查放在交易內：交易依呼叫順序排隊，交易前若先 await 查詢，先到的請求可能排到後面。
   const digest = orderDigest(input);
 
   let bubbleText: string | null = null;
   let memberId = "";
-  const { ack, fresh } = withWriteTx(db, () => {
-    const { room, me } = requireMember(db, roomId, sessionId);
+  const { ack, fresh } = await withWriteTx(db, async () => {
+    const { room, me } = await requireMember(db, roomId, sessionId);
     memberId = me.id;
 
-    const prev = db
+    const prev = await db
       .prepare("SELECT payload_digest, result_json FROM processed_requests WHERE scope = 'order' AND actor_id = ? AND request_id = ?")
-      .get(me.id, reqId) as { payload_digest: string; result_json: string } | undefined;
+      .bind(me.id, reqId).first<{ payload_digest: string; result_json: string }>();
     if (prev) {
       if (prev.payload_digest !== digest) throw err.conflict();
       return { ack: JSON.parse(prev.result_json) as OrderAck, fresh: false };
@@ -52,9 +52,9 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
     if (room.status !== "open" || deadlinePassed(room)) throw err.closed();
     if (typeof input.mealId !== "string") throw err.invalid("缺少餐點");
     if (input.delta !== 1 && input.delta !== -1) throw err.invalid("數量變化只能是 +1 或 -1");
-    const meal = db
+    const meal = await db
       .prepare("SELECT name, price_twd, available, options_json FROM room_meals WHERE room_id = ? AND meal_id = ?")
-      .get(roomId, input.mealId) as { name: string; price_twd: number; available: number; options_json: string | null } | undefined;
+      .bind(roomId, input.mealId).first<{ name: string; price_twd: number; available: number; options_json: string | null }>();
     if (!meal) throw err.mealNotFound();
     // 選項依開團凍結的菜單驗證與計價；單價 = 餐點價格 + 選項加價。
     let choiceIds: string[];
@@ -70,11 +70,11 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
     const line = [roomId, me.id, input.mealId, optionKey, note] as const;
     const where = "room_id = ? AND member_id = ? AND meal_id = ? AND option_key = ? AND note = ?";
 
-    const cur = db.prepare(`SELECT quantity FROM order_items WHERE ${where}`).get(...line) as { quantity: number } | undefined;
+    const cur = await db.prepare(`SELECT quantity FROM order_items WHERE ${where}`).bind(...line).first<{ quantity: number }>();
     // 每人每道餐點的上限跨所有選項組合合計。
-    const mealQty = (db
+    const mealQty = (await db
       .prepare("SELECT COALESCE(SUM(quantity), 0) AS n FROM order_items WHERE room_id = ? AND member_id = ? AND meal_id = ?")
-      .get(roomId, me.id, input.mealId) as { n: number }).n;
+      .bind(roomId, me.id, input.mealId).first<{ n: number }>())!.n;
     const before = cur?.quantity ?? 0;
     const after = before + input.delta;
     if (input.delta === 1 && meal.available !== 1) throw err.invalid("這個餐點目前不供應");
@@ -82,41 +82,41 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
     if (mealQty + input.delta > MAX_QTY_PER_MEAL) throw err.invalid(`同一餐點每人最多 ${MAX_QTY_PER_MEAL} 份`);
 
     if (after === 0) {
-      db.prepare(`DELETE FROM order_items WHERE ${where}`).run(...line);
+      await db.prepare(`DELETE FROM order_items WHERE ${where}`).bind(...line).run();
     } else if (before === 0) {
-      db.prepare(
+      await db.prepare(
         `INSERT INTO order_items (room_id, member_id, meal_id, option_key, note, quantity, unit_price_twd)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(...line, after, meal.price_twd + surchargeTwd);
+      ).bind(...line, after, meal.price_twd + surchargeTwd).run();
     } else {
-      db.prepare(`UPDATE order_items SET quantity = ? WHERE ${where}`).run(after, ...line);
+      await db.prepare(`UPDATE order_items SET quantity = ? WHERE ${where}`).bind(after, ...line).run();
     }
     // 改餐後需要重新確認；相同 requestId 的重試已在上方返回。
-    db.prepare("DELETE FROM member_ready WHERE member_id = ?").run(me.id);
-    const revision = bumpRevision(db, roomId);
-    const myTotalTwd = sumItems(loadItems(db, roomId, me.id)).totalTwd;
+    await db.prepare("DELETE FROM member_ready WHERE member_id = ?").bind(me.id).run();
+    const revision = await bumpRevision(db, roomId);
+    const myTotalTwd = sumItems(await loadItems(db, roomId, me.id)).totalTwd;
     const result: OrderAck = { requestId: reqId, mealId: input.mealId, quantity: after, myTotalTwd, revision };
     // 沒有選項與備註時維持升級前的回應內容，舊請求的重送結果不變。
     if (optionKey !== "" || note !== "") Object.assign(result, { choiceIds, note, lineKey: lineKeyOf(input.mealId, choiceIds, note) });
-    db.prepare(
+    await db.prepare(
       "INSERT INTO processed_requests (scope, actor_id, request_id, payload_digest, result_json) VALUES ('order', ?, ?, ?, ?)",
-    ).run(me.id, reqId, digest, JSON.stringify(result));
+    ).bind(me.id, reqId, digest, JSON.stringify(result)).run();
     if (input.delta === 1) bubbleText = `${meal.name} +1！`;
     return { ack: result, fresh: true };
   });
 
   if (fresh) {
     ctx.events.roomChanged(roomId, ack.revision);
-    if (bubbleText && socialEnabled(db, memberId)) ctx.events.bubble(roomId, memberId, bubbleText);
+    if (bubbleText && await socialEnabled(db, memberId)) ctx.events.bubble(roomId, memberId, bubbleText);
   }
   return ack;
 }
 
-export function closeRoom(ctx: Ctx, sessionId: string, roomId: string, rawRequestId: unknown): RoomSnapshot {
+export async function closeRoom(ctx: Ctx, sessionId: string, roomId: string, rawRequestId: unknown): Promise<RoomSnapshot> {
   const { db } = ctx;
   checkRequestId(rawRequestId);
-  const result = withWriteTx(db, () => {
-    const { me } = requireMember(db, roomId, sessionId);
+  const result = await withWriteTx(db, async () => {
+    const { me } = await requireMember(db, roomId, sessionId);
     if (me.role !== "owner") throw err.notAllowed("只有揪團者可以收單");
     return closeInTx(db, roomId); // 已收單（含自動收單）時回 null：重試回目前結果
   });
@@ -127,32 +127,37 @@ export function closeRoom(ctx: Ctx, sessionId: string, roomId: string, rawReques
   return buildSnapshot(db, roomId, sessionId);
 }
 
-export function getOwnerSummary(db: Db, sessionId: string, roomId: string): OwnerSummary {
-  const { me } = requireMember(db, roomId, sessionId);
+export async function getOwnerSummary(db: Db, sessionId: string, roomId: string): Promise<OwnerSummary> {
+  const { me } = await requireMember(db, roomId, sessionId);
   if (me.role !== "owner") throw err.notAllowed("只有揪團者可以查看每人明細");
   return buildSummary(db, roomId);
 }
 
-function buildSummary(db: Db, roomId: string): OwnerSummary {
-  const room = getRoomRow(db, roomId);
-  const catalog = loadCatalog(db, room);
-  const items = loadItems(db, roomId);
+function buildSummary(db: Db, roomId: string): Promise<OwnerSummary> {
+  return readConsistently(db, roomId, () => readSummary(db, roomId), (s) => s.revision);
+}
+
+async function readSummary(db: Db, roomId: string): Promise<OwnerSummary> {
+  const room = await getRoomRow(db, roomId);
+  const catalog = await loadCatalog(db, room);
+  const items = await loadItems(db, roomId);
   const stores = computeStoreTotals(catalog, items);
-  const people = listMembers(db, roomId).map((m) => {
+  const people: OwnerSummary["people"] = [];
+  for (const m of await listMembers(db, roomId)) {
     const mine = sortItemsByCatalog(
       catalog,
       items.filter((i) => i.memberId === m.id),
     );
     const totals = sumItems(mine);
-    return {
+    people.push({
       memberId: m.id,
       nickname: m.nickname,
       items: mine,
       ...totals,
       paymentStatus: room.status === "closed" && m.role !== "owner" && totals.totalTwd > 0
-        ? paymentStatus(db, roomId, m.id) : null,
-    };
-  });
+        ? await paymentStatus(db, roomId, m.id) : null,
+    });
+  }
   const payable = people.filter((p) => p.paymentStatus !== null);
   const paid = payable.filter((p) => p.paymentStatus === "confirmed");
   const paymentProgress = {
@@ -173,10 +178,10 @@ function buildSummary(db: Db, roomId: string): OwnerSummary {
 }
 
 /** 僅收單後輸出；讀取已鎖定的資料庫內容，不使用畫面暫存。 */
-export function exportOrder(db: Db, sessionId: string, roomId: string): string {
-  const { room, me } = requireMember(db, roomId, sessionId);
+export async function exportOrder(db: Db, sessionId: string, roomId: string): Promise<string> {
+  const { room, me } = await requireMember(db, roomId, sessionId);
   if (me.role !== "owner") throw err.notAllowed("只有揪團者可以匯出");
   if (room.status !== "closed") throw err.invalid("請先收單再匯出");
-  const summary = buildSummary(db, roomId);
-  return buildExportText(room.title, loadCatalog(db, room), summary.stores, summary.people);
+  const summary = await buildSummary(db, roomId);
+  return buildExportText(room.title, await loadCatalog(db, room), summary.stores, summary.people);
 }

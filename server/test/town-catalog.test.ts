@@ -5,14 +5,14 @@ import type { Catalog } from "../../shared/contracts";
 import { lotDoor } from "../../shared/town";
 import { buildApp } from "../app";
 import { noopEvents } from "../context";
-import { SAMPLE_SEED, openDb, type Db } from "../db";
+import { SAMPLE_SEED, asyncDb, openDb, type RawDb } from "../db";
 
 let app: Hono;
-let db: Db;
+let db: RawDb;
 
 beforeEach(async () => {
   db = openDb(":memory:", SAMPLE_SEED);
-  app = await buildApp({ ctx: { db, events: noopEvents } });
+  app = await buildApp({ ctx: { db: asyncDb(db), events: noopEvents } });
 });
 
 async function catalog(): Promise<Catalog> {

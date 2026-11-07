@@ -1,5 +1,5 @@
-import type { Db } from "../db";
-import { withWriteTx } from "../db-shared";
+import type { SyncDb as Db } from "../db-shared";
+import { withSyncTx } from "../db-shared";
 
 const columnsOf = (db: Pick<Db, "prepare">, table: string) =>
   (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
@@ -15,7 +15,7 @@ export function migrateMealOptions(db: Pick<Db, "prepare" | "exec">) {
   const needRoomMeals = !columnsOf(db, "room_meals").includes("options_json");
   const needItems = !columnsOf(db, "order_items").includes("option_key");
   if (!needMeals && !needRoomMeals && !needItems) return;
-  withWriteTx(db as Db, () => {
+  withSyncTx(db as Db, () => {
     if (needMeals) db.exec("ALTER TABLE meals ADD COLUMN options_json TEXT");
     if (needRoomMeals) db.exec("ALTER TABLE room_meals ADD COLUMN options_json TEXT");
     if (needItems) {

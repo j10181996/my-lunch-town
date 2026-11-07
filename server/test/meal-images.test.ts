@@ -4,7 +4,7 @@ import { inflateSync } from "node:zlib";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, SAMPLE_SEED } from "../db";
+import { asyncDb, openDb, SAMPLE_SEED } from "../db";
 import { noopEvents } from "../context";
 import { uploadMealImage, readMealImage, type ImageStorage } from "../images/images";
 import { fileImageStorage } from "../images/files";
@@ -23,7 +23,7 @@ function fixture() {
   db.prepare("UPDATE stores SET owner_session_id = 'shop' WHERE id = 'store-af'").run();
   const objects = new Map<string, Uint8Array>();
   const images: ImageStorage = { async put(key, value) { objects.set(key, value); }, async get(key) { return objects.get(key) ?? null; } };
-  return { db, objects, images, ctx: { db, images, events: noopEvents } };
+  return { db, objects, images, ctx: { db: asyncDb(db), images, events: noopEvents } };
 }
 it("固定尺寸量化、透明像素清除及格式限制", () => {
   const data = pixels(); data[0] = 255; data[1] = 245; data[2] = 210;
@@ -102,22 +102,22 @@ it("只有店家可上傳、同圖重試去重，跨店不可沿用圖片", asyn
     expect(objects.size).toBe(1);
     expect(await readMealImage(ctx, uploaded.imageAssetKey)).toBeInstanceOf(Uint8Array);
     db.prepare("UPDATE stores SET owner_session_id = 'shop' WHERE id = 'store-tree'").run();
-    expect(() => updateMeal(db, "shop", "store-tree", "meal-tree-dry", { imageAssetKey: uploaded.imageAssetKey })).toThrow(/這家店/);
-    expect(() => updateMeal(db, "shop", "store-af", "meal-af-chicken", { imageAssetKey: "custom-" + "f".repeat(64) })).toThrow(/這家店/);
+    await expect(updateMeal(ctx.db, "shop", "store-tree", "meal-tree-dry", { imageAssetKey: uploaded.imageAssetKey })).rejects.toThrow(/這家店/);
+    await expect(updateMeal(ctx.db, "shop", "store-af", "meal-af-chicken", { imageAssetKey: "custom-" + "f".repeat(64) })).rejects.toThrow(/這家店/);
   } finally { db.close(); }
 });
 it("換圖不改既有團、舊圖片仍可讀取，新團取得新圖", async () => {
   const { db, ctx } = fixture();
   try {
     const first = await uploadMealImage(ctx, "shop", "store-af", { pixels: pixels() });
-    updateMeal(db, "shop", "store-af", "meal-af-chicken", { imageAssetKey: first.imageAssetKey });
-    const old = createRoom(ctx, "owner", { title: "舊團", nickname: "團主", storeIds: ["store-af"], requestId: "old-room-image" });
+    await updateMeal(ctx.db, "shop", "store-af", "meal-af-chicken", { imageAssetKey: first.imageAssetKey });
+    const old = await createRoom(ctx, "owner", { title: "舊團", nickname: "團主", storeIds: ["store-af"], requestId: "old-room-image" });
     const changed = pixels(); changed[0] = 255;
     const second = await uploadMealImage(ctx, "shop", "store-af", { pixels: changed });
     expect(first.imageAssetKey).not.toBe(second.imageAssetKey);
-    updateMeal(db, "shop", "store-af", "meal-af-chicken", { imageAssetKey: second.imageAssetKey });
-    const current = createRoom(ctx, "owner", { title: "新團", nickname: "團主", storeIds: ["store-af"], requestId: "new-room-image" });
-    expect(buildSnapshot(db, old.snapshot.room.id, "owner").catalog.meals.find((m) => m.id === "meal-af-chicken")?.imageAssetKey).toBe(first.imageAssetKey);
+    await updateMeal(ctx.db, "shop", "store-af", "meal-af-chicken", { imageAssetKey: second.imageAssetKey });
+    const current = await createRoom(ctx, "owner", { title: "新團", nickname: "團主", storeIds: ["store-af"], requestId: "new-room-image" });
+    expect((await buildSnapshot(ctx.db, old.snapshot.room.id, "owner")).catalog.meals.find((m) => m.id === "meal-af-chicken")?.imageAssetKey).toBe(first.imageAssetKey);
     expect(current.snapshot.catalog.meals.find((m) => m.id === "meal-af-chicken")?.imageAssetKey).toBe(second.imageAssetKey);
     expect((await readMealImage(ctx, first.imageAssetKey)).length).toBeGreaterThan(0);
   } finally { db.close(); }

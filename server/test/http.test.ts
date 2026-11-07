@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../app";
 import { noopEvents } from "../context";
-import { openDb, SAMPLE_SEED } from "../db";
+import { asyncDb, openDb, SAMPLE_SEED } from "../db";
 import { inject } from "./inject";
 
 /** Node 與 Worker 共用的請求前處理（server/api.ts 的 readApiRequest）與回應格式。 */
 describe("API 請求處理", () => {
-  const app = buildApp({ ctx: { db: openDb(":memory:", SAMPLE_SEED), events: noopEvents } });
+  const app = buildApp({ ctx: { db: asyncDb(openDb(":memory:", SAMPLE_SEED)), events: noopEvents } });
 
   it("第一次請求發 HttpOnly 工作階段 Cookie，帶著 Cookie 就不再發", async () => {
     const first = await inject(app, { url: "/api/town" });
@@ -17,7 +17,7 @@ describe("API 請求處理", () => {
   });
 
   it("secureCookie 時 Cookie 帶 Secure", async () => {
-    const secure = buildApp({ ctx: { db: openDb(":memory:", SAMPLE_SEED), events: noopEvents }, secureCookie: true });
+    const secure = buildApp({ ctx: { db: asyncDb(openDb(":memory:", SAMPLE_SEED)), events: noopEvents }, secureCookie: true });
     expect((await inject(secure, { url: "/api/town" })).headers["set-cookie"]).toMatch(/; Secure$/);
   });
 

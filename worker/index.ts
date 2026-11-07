@@ -1,12 +1,10 @@
 import type { MoveInput, PlayerPresence } from "../shared/contracts";
 import type { Ctx } from "../server/context";
 import { isBadgeId } from "../shared/social";
-import { requireMember } from "../server/rooms/rooms";
 import { closeExpiredRooms } from "../server/rooms/deadline";
-import { requireOwner } from "../server/stores/stores";
 import { api, errorResponse, readApiRequest, withSessionCookie } from "../server/api";
 import { Hono } from "hono";
-import { AppError, err, exportSnapshot, openSnapshot, type Db } from "./db";
+import { AppError, err, exportSnapshot, openSnapshot, type SyncDb } from "./db";
 import { servePageOrAsset } from "./assets";
 
 // These structural types keep the Node development server independent of Wrangler.
@@ -85,12 +83,22 @@ async function liveSnapshot(env: Env): Promise<LiveCache> {
  * Sites 專屬的即時同步：讀取唯讀的快照快取，角色位置直接寫 D1 的 live_presence，
  * 不進入快照交易。Node 改用 Socket.IO（server/realtime/realtime.ts）。
  */
-const live = new Hono<{ Bindings: { env: Env; db: Db; sid: string; body: unknown; revision: number } }>();
+const live = new Hono<{ Bindings: { env: Env; db: SyncDb; sid: string; body: unknown; revision: number } }>();
+
+// 快取可能在任何 await 時被其他請求換掉並關閉，所以成員與店主檢查直接用同步查詢，
+// 不呼叫非同步的領域函式；檢查規則與 rooms.ts 的 requireMember、stores.ts 的 requireOwner 相同。
+function liveMember(db: SyncDb, roomId: string, sid: string) {
+  const room = db.prepare("SELECT revision FROM rooms WHERE id = ?").get(roomId) as { revision: number } | undefined;
+  if (!room) throw err.roomNotFound();
+  const me = db.prepare("SELECT id FROM members WHERE room_id = ? AND session_id = ?").get(roomId, sid) as { id: string } | undefined;
+  if (!me) throw err.session();
+  return { room, me };
+}
 
 live.post("/api/rooms/:id/live", async (c) => {
   const { env, db, sid, body } = c.env;
   const roomId = c.req.param("id");
-  const { room, me } = requireMember(db, roomId, sid);
+  const { room, me } = liveMember(db, roomId, sid);
   const input = body as { clientId?: string; move?: unknown; leave?: boolean; after?: number } | null;
   if (!input || typeof input.clientId !== "string" || !/^[a-zA-Z0-9-]{8,64}$/.test(input.clientId)) throw err.invalid("連線識別碼無效");
   const now = Date.now();
@@ -125,7 +133,9 @@ live.post("/api/rooms/:id/live", async (c) => {
 
 live.post("/api/stores/:storeId/live", (c) => {
   const storeId = c.req.param("storeId");
-  requireOwner(c.env.db, c.env.sid, storeId);
+  const store = c.env.db.prepare("SELECT owner_session_id FROM stores WHERE id = ?").get(storeId) as { owner_session_id: string | null } | undefined;
+  if (!store) throw new AppError("INVALID_INPUT", 404, "找不到這家店");
+  if (store.owner_session_id !== c.env.sid) throw err.notAllowed("這不是你的店；可用管理碼認領");
   return c.json({ storeId, revision: c.env.revision });
 });
 
@@ -143,7 +153,7 @@ async function runInSnapshot(request: Request, env: Env, sid: string, body: unkn
   const write = request.method !== "GET";
   for (let attempt = 0; attempt < 8; attempt++) {
     const stored = await load(env);
-    const { db, raw } = await openSnapshot(stored.bytes);
+    const { db, sync, raw } = await openSnapshot(stored.bytes);
     try {
       const ctx: Ctx = { db, images: env.BUCKET ? {
         async put(key, bytes) { await env.BUCKET!.put(key, bytes, { httpMetadata: { contentType: "image/png" } }); },
@@ -151,14 +161,14 @@ async function runInSnapshot(request: Request, env: Env, sid: string, body: unkn
       } : undefined, events: {
         roomChanged() {}, storeOrdersChanged() {},
         bubble(roomId, memberId, text) {
-          db.prepare("INSERT INTO live_bubbles (room_id, member_id, text, created_at) VALUES (?, ?, ?, ?)").run(roomId, memberId, text, Date.now());
+          sync.prepare("INSERT INTO live_bubbles (room_id, member_id, text, created_at) VALUES (?, ?, ?, ?)").run(roomId, memberId, text, Date.now());
         },
       } };
       // Sites 沒有已驗證的排程：任何寫入請求順便收掉已過截止的團，與本次寫入一起提交。
-      if (write) closeExpiredRooms(ctx);
+      if (write) await closeExpiredRooms(ctx);
       const response = await api.fetch(request, { ctx, sid, body, demoKey: env.DEMO_KEY ?? "demo" });
       if (write && response.ok) {
-        db.prepare("DELETE FROM live_bubbles WHERE created_at < ?").run(Date.now() - 60_000);
+        sync.prepare("DELETE FROM live_bubbles WHERE created_at < ?").run(Date.now() - 60_000);
         const bytes = exportSnapshot(raw);
         if (bytes.byteLength > MAX_SNAPSHOT_BYTES) throw new AppError("RETRY_LATER", 503, "資料容量已達上限，請聯絡管理者擴充；本次操作未寫入");
         const committed = await env.DB.prepare("UPDATE app_state SET bytes = ?, revision = revision + 1 WHERE id = 1 AND revision = ?")
@@ -181,7 +191,7 @@ export default {
       if (url.pathname.endsWith("/live")) {
         if (request.method !== "POST") return new Response(null, { status: 405 });
         const snapshot = await liveSnapshot(env);
-        return withSessionCookie(await live.fetch(request, { env, db: snapshot.db, sid, body, revision: snapshot.revision }), setCookie);
+        return withSessionCookie(await live.fetch(request, { env, db: snapshot.sync, sid, body, revision: snapshot.revision }), setCookie);
       }
       return withSessionCookie(await runInSnapshot(request, env, sid, body), setCookie);
     } catch (error) {

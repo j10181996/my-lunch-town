@@ -2,14 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { inject } from "./inject";
 import type { Hono } from "hono";
 import { buildApp } from "../app";
-import { SAMPLE_SEED, openDb, type Db } from "../db";
+import type { DatabaseSync } from "node:sqlite";
+import { SAMPLE_SEED, asyncDb, openDb } from "../db";
 import type { Ctx } from "../context";
 import { closeExpiredRooms, migrateDeadline } from "../rooms/deadline";
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
 let app: Hono;
 let ctx: Ctx;
-let db: Db;
+let raw: DatabaseSync;
 let storeChanges: string[];
 let n = 0;
 const rid = () => `req-${Date.now()}-${n++}-xxxx`;
@@ -21,9 +22,9 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(T0);
   storeChanges = [];
-  db = openDb(":memory:", SAMPLE_SEED);
+  raw = openDb(":memory:", SAMPLE_SEED);
   ctx = {
-    db,
+    db: asyncDb(raw),
     events: { roomChanged() {}, bubble() {}, storeOrdersChanged: (id) => storeChanges.push(id) },
   };
   app = await buildApp({ ctx });
@@ -63,7 +64,7 @@ const plus = (c: ReturnType<typeof client>, roomId: string, mealId: string) =>
 
 /** 店家訂單的可比較內容（不含 id 與時間）。 */
 function storeOrders(roomId: string) {
-  return (db.prepare("SELECT store_id, status, items_json, people_json, total_quantity, total_twd, fulfillment FROM store_orders WHERE room_id = ? ORDER BY store_id")
+  return (raw.prepare("SELECT store_id, status, items_json, people_json, total_quantity, total_twd, fulfillment FROM store_orders WHERE room_id = ? ORDER BY store_id")
     .all(roomId) as Array<Record<string, unknown>>).map((r) => ({ ...r, people_json: JSON.parse(String(r.people_json)) }));
 }
 
@@ -143,8 +144,8 @@ describe("時間到自動收單", () => {
   it("沒設截止的團不會被自動收單", async () => {
     const { roomId } = await openRoom();
     vi.setSystemTime(T0 + 48 * 60 * MIN);
-    expect(closeExpiredRooms(ctx)).toEqual([]);
-    expect((db.prepare("SELECT status FROM rooms WHERE id = ?").get(roomId) as { status: string }).status).toBe("open");
+    expect(await closeExpiredRooms(ctx)).toEqual([]);
+    expect((raw.prepare("SELECT status FROM rooms WHERE id = ?").get(roomId) as { status: string }).status).toBe("open");
   });
 
   it("自動收單與手動收單產生相同的店家訂單", async () => {
@@ -158,7 +159,7 @@ describe("時間到自動收單", () => {
     }
     await manual.owner.post(`/api/rooms/${manual.roomId}/close`, { requestId: rid() });
     vi.setSystemTime(T0 + 10 * MIN);
-    expect(closeExpiredRooms(ctx)).toEqual([auto.roomId]);
+    expect(await closeExpiredRooms(ctx)).toEqual([auto.roomId]);
 
     expect(storeOrders(auto.roomId)).toEqual(storeOrders(manual.roomId));
     expect(storeOrders(auto.roomId)).toHaveLength(2);
@@ -179,7 +180,7 @@ describe("時間到自動收單", () => {
       plus(bo, roomId, "meal-tree-dry"),
       bo.post(`/api/rooms/${roomId}/expire`),
     ]);
-    const swept = closeExpiredRooms(ctx);
+    const swept = await closeExpiredRooms(ctx);
 
     expect(order.status).toBe(409);
     expect(swept).toEqual([]);
@@ -200,7 +201,7 @@ describe("時間到自動收單", () => {
     const order = await plus(rain, roomId, "meal-af-pork");
     expect(order.status).toBe(200);
     vi.setSystemTime(T0 + 10 * MIN);
-    closeExpiredRooms(ctx);
+    await closeExpiredRooms(ctx);
     expect(storeOrders(roomId)).toEqual([expect.objectContaining({ store_id: "store-af", total_quantity: 1 })]);
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openDb, SAMPLE_SEED } from "../db";
+import { asyncDb, openDb, SAMPLE_SEED } from "../db";
 import { createRoom, buildSnapshot } from "../rooms/rooms";
 import { recommendMeal, setSocial, sendEmote } from "../rooms/social";
 import { changeQuantity } from "../orders/orders";
@@ -8,76 +8,76 @@ import { createTownFriends, friendPose, lifeWalkable } from "../../web/game/town
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
 afterEach(() => vi.restoreAllMocks());
-function fixture() {
+async function fixture() {
   const db = openDb(":memory:", SAMPLE_SEED);
   db.prepare("INSERT INTO sessions VALUES (?, ?)").run("owner-session", Date.now());
   const bubble = vi.fn();
-  const ctx: Ctx = { db, events: { bubble, roomChanged() {}, storeOrdersChanged() {} } };
-  const snap = createRoom(ctx, "owner-session", { title: "社交測試", nickname: "阿凱", requestId: crypto.randomUUID(), storeIds: SAMPLE_STORE_IDS }).snapshot;
+  const ctx: Ctx = { db: asyncDb(db), events: { bubble, roomChanged() {}, storeOrdersChanged() {} } };
+  const snap = (await createRoom(ctx, "owner-session", { title: "社交測試", nickname: "阿凱", requestId: crypto.randomUUID(), storeIds: SAMPLE_STORE_IDS })).snapshot;
   return { db, ctx, snap, bubble };
 }
 
 describe("小鎮社交", () => {
-  it("限定團員與固定表情，抑制連點且不改訂單 revision", () => {
-    const { db, ctx, snap, bubble } = fixture();
+  it("限定團員與固定表情，抑制連點且不改訂單 revision", async () => {
+    const { db, ctx, snap, bubble } = await fixture();
     try {
       const room = snap.room.id;
-      expect(() => sendEmote(ctx, "stranger", room, { emote: "wave" })).toThrow("請先加入");
-      expect(() => sendEmote(ctx, "owner-session", room, { emote: "<script>" })).toThrow("不支援");
-      const result = sendEmote(ctx, "owner-session", room, { emote: "wave", memberId: "other" });
+      await expect(sendEmote(ctx, "stranger", room, { emote: "wave" })).rejects.toThrow("請先加入");
+      await expect(sendEmote(ctx, "owner-session", room, { emote: "<script>" })).rejects.toThrow("不支援");
+      const result = await sendEmote(ctx, "owner-session", room, { emote: "wave", memberId: "other" });
       expect(bubble).toHaveBeenCalledWith(room, snap.me.id, result.text);
-      expect(() => sendEmote(ctx, "owner-session", room, { emote: "heart" })).toThrow("慢一點");
-      expect(buildSnapshot(db, room, "owner-session").room.revision).toBe(snap.room.revision);
+      await expect(sendEmote(ctx, "owner-session", room, { emote: "heart" })).rejects.toThrow("慢一點");
+      expect((await buildSnapshot(asyncDb(db), room, "owner-session")).room.revision).toBe(snap.room.revision);
     } finally { db.close(); }
   });
 
-  it("關閉社交後清除泡泡、禁止送表情，點餐仍成功且不廣播餐點；重開可恢復", () => {
-    const { db, ctx, snap, bubble } = fixture();
+  it("關閉社交後清除泡泡、禁止送表情，點餐仍成功且不廣播餐點；重開可恢復", async () => {
+    const { db, ctx, snap, bubble } = await fixture();
     try {
       const room = snap.room.id;
-      setSocial(ctx, "owner-session", room, { enabled: false });
+      await setSocial(ctx, "owner-session", room, { enabled: false });
       expect(bubble).toHaveBeenLastCalledWith(room, snap.me.id, "");
       bubble.mockClear();
-      expect(() => sendEmote(ctx, "owner-session", room, { emote: "heart" })).toThrow("請先開啟");
-      changeQuantity(ctx, "owner-session", room, { mealId: snap.catalog.meals[0].id, delta: 1, requestId: crypto.randomUUID() });
+      await expect(sendEmote(ctx, "owner-session", room, { emote: "heart" })).rejects.toThrow("請先開啟");
+      await changeQuantity(ctx, "owner-session", room, { mealId: snap.catalog.meals[0].id, delta: 1, requestId: crypto.randomUUID() });
       expect(bubble).not.toHaveBeenCalled();
-      const saved = buildSnapshot(db, room, "owner-session");
+      const saved = await buildSnapshot(asyncDb(db), room, "owner-session");
       expect(saved.socialEnabled).toBe(false);
       expect(saved.myTotalQuantity).toBe(1);
-      setSocial(ctx, "owner-session", room, { enabled: true });
-      expect(sendEmote(ctx, "owner-session", room, { emote: "heart" }).text).toContain("❤️");
+      await setSocial(ctx, "owner-session", room, { enabled: true });
+      expect((await sendEmote(ctx, "owner-session", room, { emote: "heart" })).text).toContain("❤️");
     } finally { db.close(); }
   });
 });
 
 describe("推薦給大家", () => {
-  it("只能推薦本團菜單上的餐點，和表情共用頻率限制，不改訂單 revision", () => {
-    const { db, ctx, snap, bubble } = fixture();
+  it("只能推薦本團菜單上的餐點，和表情共用頻率限制，不改訂單 revision", async () => {
+    const { db, ctx, snap, bubble } = await fixture();
     try {
       const room = snap.room.id;
       const meal = snap.catalog.meals.find((m) => m.available)!;
-      expect(() => recommendMeal(ctx, "stranger", room, { mealId: meal.id })).toThrow("請先加入");
-      expect(() => recommendMeal(ctx, "owner-session", room, {})).toThrow("請選擇");
-      expect(() => recommendMeal(ctx, "owner-session", room, { mealId: "no-such-meal" })).toThrow("不在本團");
-      const result = recommendMeal(ctx, "owner-session", room, { mealId: meal.id, text: "任意文字" });
+      await expect(recommendMeal(ctx, "stranger", room, { mealId: meal.id })).rejects.toThrow("請先加入");
+      await expect(recommendMeal(ctx, "owner-session", room, {})).rejects.toThrow("請選擇");
+      await expect(recommendMeal(ctx, "owner-session", room, { mealId: "no-such-meal" })).rejects.toThrow("不在本團");
+      const result = await recommendMeal(ctx, "owner-session", room, { mealId: meal.id, text: "任意文字" });
       expect(result.text).toBe(`👍 推薦「${meal.name}」！`);
       expect(bubble).toHaveBeenCalledWith(room, snap.me.id, result.text);
-      expect(() => sendEmote(ctx, "owner-session", room, { emote: "wave" })).toThrow("慢一點");
-      expect(() => recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).toThrow("慢一點");
-      expect(buildSnapshot(db, room, "owner-session").room.revision).toBe(snap.room.revision);
+      await expect(sendEmote(ctx, "owner-session", room, { emote: "wave" })).rejects.toThrow("慢一點");
+      await expect(recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).rejects.toThrow("慢一點");
+      expect((await buildSnapshot(asyncDb(db), room, "owner-session")).room.revision).toBe(snap.room.revision);
     } finally { db.close(); }
   });
 
-  it("關閉社交或已收單時不能推薦", () => {
-    const { db, ctx, snap } = fixture();
+  it("關閉社交或已收單時不能推薦", async () => {
+    const { db, ctx, snap } = await fixture();
     try {
       const room = snap.room.id;
       const meal = snap.catalog.meals.find((m) => m.available)!;
-      setSocial(ctx, "owner-session", room, { enabled: false });
-      expect(() => recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).toThrow("請先開啟");
-      setSocial(ctx, "owner-session", room, { enabled: true });
+      await setSocial(ctx, "owner-session", room, { enabled: false });
+      await expect(recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).rejects.toThrow("請先開啟");
+      await setSocial(ctx, "owner-session", room, { enabled: true });
       db.prepare("UPDATE rooms SET status = 'closed' WHERE id = ?").run(room);
-      expect(() => recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).toThrow("已收單");
+      await expect(recommendMeal(ctx, "owner-session", room, { mealId: meal.id })).rejects.toThrow("已收單");
     } finally { db.close(); }
   });
 });

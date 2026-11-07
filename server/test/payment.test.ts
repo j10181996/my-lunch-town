@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { validatePaymentInfo } from "../../shared/payment";
 import { paymentQrPayload, twqrTransferPayload } from "../../shared/payment-qr";
-import { openDb } from "../db";
+import { asyncDb, openDb } from "../db";
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
 const bank = { type: "bank", bankCode: "812", account: "1234-5678-9012", holder: "王阿凱" };
@@ -124,13 +124,14 @@ it("付款變更與 revision 原子提交、提交後通知，重試與取消保
   const { changeQuantity, closeRoom } = await import("../orders/orders");
   const { confirmPayment, paymentRow, reportPayment, sendPaymentInfo, setPaymentInfo } =
     await import("../rooms/payments");
-  const db = openDb(":memory:");
+  const raw = openDb(":memory:");
+  const db = asyncDb(raw);
   const notifications: number[] = [];
   const ctx = {
     db,
     events: {
       roomChanged(_roomId: string, revision: number) {
-        expect(db.isTransaction).toBe(false);
+        expect(raw.isTransaction).toBe(false);
         notifications.push(revision);
       },
       bubble() {},
@@ -139,37 +140,37 @@ it("付款變更與 revision 原子提交、提交後通知，重試與取消保
   };
   const requestId = "payment-atomic-request";
   try {
-    const roomId = createRoom(ctx, "owner", { title: "收款", nickname: "阿凱", requestId, storeIds: SAMPLE_STORE_IDS }).snapshot.room.id;
-    const memberId = joinRoom(ctx, "rain", roomId, { nickname: "小雨", avatarId: "avatar-pink" }).me.id;
-    changeQuantity(ctx, "rain", roomId, { mealId: "meal-af-chicken", delta: 1, requestId });
-    closeRoom(ctx, "owner", roomId, requestId);
-    setPaymentInfo(ctx, "owner", roomId, { methods: [bank], note: "" });
-    sendPaymentInfo(ctx, "owner", roomId);
-    const before = db.prepare("SELECT revision FROM rooms WHERE id = ?").get(roomId)!.revision;
+    const roomId = (await createRoom(ctx, "owner", { title: "收款", nickname: "阿凱", requestId, storeIds: SAMPLE_STORE_IDS })).snapshot.room.id;
+    const memberId = (await joinRoom(ctx, "rain", roomId, { nickname: "小雨", avatarId: "avatar-pink" })).me.id;
+    await changeQuantity(ctx, "rain", roomId, { mealId: "meal-af-chicken", delta: 1, requestId });
+    await closeRoom(ctx, "owner", roomId, requestId);
+    await setPaymentInfo(ctx, "owner", roomId, { methods: [bank], note: "" });
+    await sendPaymentInfo(ctx, "owner", roomId);
+    const before = raw.prepare("SELECT revision FROM rooms WHERE id = ?").get(roomId)!.revision;
     const events = notifications.length;
-    db.exec(`CREATE TRIGGER block_payment_revision BEFORE UPDATE OF revision ON rooms
+    raw.exec(`CREATE TRIGGER block_payment_revision BEFORE UPDATE OF revision ON rooms
       BEGIN SELECT RAISE(ABORT, 'forced revision failure'); END;`);
-    expect(() => reportPayment(ctx, "rain", roomId)).toThrow("forced revision failure");
-    expect(paymentRow(db, roomId, memberId)).toBeUndefined();
-    expect(db.prepare("SELECT revision FROM rooms WHERE id = ?").get(roomId)!.revision).toBe(before);
+    await expect(reportPayment(ctx, "rain", roomId)).rejects.toThrow("forced revision failure");
+    expect(await paymentRow(db, roomId, memberId)).toBeNull();
+    expect(raw.prepare("SELECT revision FROM rooms WHERE id = ?").get(roomId)!.revision).toBe(before);
     expect(notifications).toHaveLength(events);
-    db.exec("DROP TRIGGER block_payment_revision");
-    reportPayment(ctx, "rain", roomId);
-    const reported = paymentRow(db, roomId, memberId)!;
+    raw.exec("DROP TRIGGER block_payment_revision");
+    await reportPayment(ctx, "rain", roomId);
+    const reported = (await paymentRow(db, roomId, memberId))!;
     expect(reported.reported_at).toEqual(expect.any(Number));
     expect(reported.confirmed_at).toBeNull();
-    reportPayment(ctx, "rain", roomId);
-    expect(paymentRow(db, roomId, memberId)).toEqual(reported);
-    confirmPayment(ctx, "owner", roomId, memberId, { confirmed: true });
-    const confirmed = paymentRow(db, roomId, memberId)!;
+    await reportPayment(ctx, "rain", roomId);
+    expect(await paymentRow(db, roomId, memberId)).toEqual(reported);
+    await confirmPayment(ctx, "owner", roomId, memberId, { confirmed: true });
+    const confirmed = (await paymentRow(db, roomId, memberId))!;
     expect(confirmed.confirmed_at).toEqual(expect.any(Number));
     expect(confirmed.reported_at).toBe(reported.reported_at);
-    confirmPayment(ctx, "owner", roomId, memberId, { confirmed: true });
-    reportPayment(ctx, "rain", roomId);
-    expect(paymentRow(db, roomId, memberId)).toEqual(confirmed);
-    confirmPayment(ctx, "owner", roomId, memberId, { confirmed: false });
-    expect(paymentRow(db, roomId, memberId)).toEqual(reported);
-  } finally { db.close(); }
+    await confirmPayment(ctx, "owner", roomId, memberId, { confirmed: true });
+    await reportPayment(ctx, "rain", roomId);
+    expect(await paymentRow(db, roomId, memberId)).toEqual(confirmed);
+    await confirmPayment(ctx, "owner", roomId, memberId, { confirmed: false });
+    expect(await paymentRow(db, roomId, memberId)).toEqual(reported);
+  } finally { raw.close(); }
 });
 
 it("付款提醒只送給未付款的團員，限團主、收單並傳送後，並有冷卻時間", async () => {
@@ -177,7 +178,8 @@ it("付款提醒只送給未付款的團員，限團主、收單並傳送後，�
   const { changeQuantity, closeRoom } = await import("../orders/orders");
   const { PAYMENT_REMIND_COOLDOWN_MS, remindUnpaid, reportPayment, sendPaymentInfo, setPaymentInfo } =
     await import("../rooms/payments");
-  const db = openDb(":memory:");
+  const raw = openDb(":memory:");
+  const db = asyncDb(raw);
   const notifications: number[] = [];
   const ctx = {
     db,
@@ -185,37 +187,37 @@ it("付款提醒只送給未付款的團員，限團主、收單並傳送後，�
   };
   const requestId = "payment-remind-request";
   try {
-    const roomId = createRoom(ctx, "owner", { title: "提醒", nickname: "阿凱", requestId, storeIds: SAMPLE_STORE_IDS }).snapshot.room.id;
-    joinRoom(ctx, "rain", roomId, { nickname: "小雨", avatarId: "avatar-pink" });
-    joinRoom(ctx, "sun", roomId, { nickname: "小陽", avatarId: "avatar-pink" });
-    joinRoom(ctx, "idle", roomId, { nickname: "沒點", avatarId: "avatar-pink" });
-    changeQuantity(ctx, "rain", roomId, { mealId: "meal-af-chicken", delta: 1, requestId });
-    changeQuantity(ctx, "sun", roomId, { mealId: "meal-af-chicken", delta: 1, requestId });
-    expect(() => remindUnpaid(ctx, "owner", roomId)).toThrow("請先收單");
-    closeRoom(ctx, "owner", roomId, requestId);
-    setPaymentInfo(ctx, "owner", roomId, { methods: [bank], note: "" });
-    expect(() => remindUnpaid(ctx, "owner", roomId)).toThrow("請先傳送收款資訊");
-    sendPaymentInfo(ctx, "owner", roomId);
-    reportPayment(ctx, "sun", roomId);
-    expect(() => remindUnpaid(ctx, "rain", roomId)).toThrow("只有揪團者");
-    expect(buildSnapshot(db, roomId, "rain").myPayment?.remindedAt).toBeNull();
+    const roomId = (await createRoom(ctx, "owner", { title: "提醒", nickname: "阿凱", requestId, storeIds: SAMPLE_STORE_IDS })).snapshot.room.id;
+    await joinRoom(ctx, "rain", roomId, { nickname: "小雨", avatarId: "avatar-pink" });
+    await joinRoom(ctx, "sun", roomId, { nickname: "小陽", avatarId: "avatar-pink" });
+    await joinRoom(ctx, "idle", roomId, { nickname: "沒點", avatarId: "avatar-pink" });
+    await changeQuantity(ctx, "rain", roomId, { mealId: "meal-af-chicken", delta: 1, requestId });
+    await changeQuantity(ctx, "sun", roomId, { mealId: "meal-af-chicken", delta: 1, requestId });
+    await expect(remindUnpaid(ctx, "owner", roomId)).rejects.toThrow("請先收單");
+    await closeRoom(ctx, "owner", roomId, requestId);
+    await setPaymentInfo(ctx, "owner", roomId, { methods: [bank], note: "" });
+    await expect(remindUnpaid(ctx, "owner", roomId)).rejects.toThrow("請先傳送收款資訊");
+    await sendPaymentInfo(ctx, "owner", roomId);
+    await reportPayment(ctx, "sun", roomId);
+    await expect(remindUnpaid(ctx, "rain", roomId)).rejects.toThrow("只有揪團者");
+    expect((await buildSnapshot(db, roomId, "rain")).myPayment?.remindedAt).toBeNull();
 
     const before = notifications.length;
     const at = 1_000_000;
-    const owner = remindUnpaid(ctx, "owner", roomId, at);
+    const owner = await remindUnpaid(ctx, "owner", roomId, at);
     expect(owner.payment?.remindedAt).toBe(at);
     expect(notifications).toHaveLength(before + 1);
-    expect(buildSnapshot(db, roomId, "rain").myPayment).toMatchObject({ status: "unpaid", remindedAt: at });
-    expect(buildSnapshot(db, roomId, "sun").myPayment).toMatchObject({ status: "reported", remindedAt: null });
-    expect(buildSnapshot(db, roomId, "idle").myPayment).toBeNull();
-    expect(buildSnapshot(db, roomId, "rain").payment).not.toHaveProperty("remindedAt");
+    expect((await buildSnapshot(db, roomId, "rain")).myPayment).toMatchObject({ status: "unpaid", remindedAt: at });
+    expect((await buildSnapshot(db, roomId, "sun")).myPayment).toMatchObject({ status: "reported", remindedAt: null });
+    expect((await buildSnapshot(db, roomId, "idle")).myPayment).toBeNull();
+    expect((await buildSnapshot(db, roomId, "rain")).payment).not.toHaveProperty("remindedAt");
 
-    expect(() => remindUnpaid(ctx, "owner", roomId, at + PAYMENT_REMIND_COOLDOWN_MS - 1)).toThrow("剛提醒過");
-    remindUnpaid(ctx, "owner", roomId, at + PAYMENT_REMIND_COOLDOWN_MS);
-    expect(buildSnapshot(db, roomId, "rain").myPayment?.remindedAt).toBe(at + PAYMENT_REMIND_COOLDOWN_MS);
+    await expect(remindUnpaid(ctx, "owner", roomId, at + PAYMENT_REMIND_COOLDOWN_MS - 1)).rejects.toThrow("剛提醒過");
+    await remindUnpaid(ctx, "owner", roomId, at + PAYMENT_REMIND_COOLDOWN_MS);
+    expect((await buildSnapshot(db, roomId, "rain")).myPayment?.remindedAt).toBe(at + PAYMENT_REMIND_COOLDOWN_MS);
 
-    reportPayment(ctx, "rain", roomId);
-    expect(buildSnapshot(db, roomId, "rain").myPayment?.remindedAt).toBeNull();
-    expect(() => remindUnpaid(ctx, "owner", roomId, at * 10)).toThrow("沒有未付款");
-  } finally { db.close(); }
+    await reportPayment(ctx, "rain", roomId);
+    expect((await buildSnapshot(db, roomId, "rain")).myPayment?.remindedAt).toBeNull();
+    await expect(remindUnpaid(ctx, "owner", roomId, at * 10)).rejects.toThrow("沒有未付款");
+  } finally { raw.close(); }
 });

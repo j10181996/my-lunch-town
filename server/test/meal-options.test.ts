@@ -3,7 +3,7 @@ import { inject } from "./inject";
 import { DatabaseSync } from "node:sqlite";
 import type { Hono } from "hono";
 import { buildApp } from "../app";
-import { SAMPLE_SEED, openDb, type Db } from "../db";
+import { SAMPLE_SEED, asyncDb, openDb, type Db } from "../db";
 import type { Ctx } from "../context";
 import { migrateMealOptions } from "../orders/options-schema";
 import { lineKeyOf, resolveChoices, validateOptionGroups } from "../../shared/meal-options";
@@ -17,7 +17,7 @@ const rid = () => `req-opt-${Date.now()}-${n++}-xxxx`;
 
 beforeEach(async () => {
   changes = 0;
-  db = openDb(":memory:", SAMPLE_SEED);
+  db = asyncDb(openDb(":memory:", SAMPLE_SEED));
   const ctx: Ctx = { db, events: { roomChanged: () => void changes++, bubble() {}, storeOrdersChanged() {} } };
   app = await buildApp({ ctx });
 });

@@ -19,17 +19,17 @@ interface Row {
  * 收錄所有有供應中餐點的店；現在不收單的店（手動休息或不在營業時段）標成 resting，
  * 讓店家也能走到自己的店面預覽。只回傳開團時會公開的欄位，不含外送規則與擁有者資訊。
  */
-export function getTownCatalog(db: Db, now = Date.now()): Catalog {
-  const stores = db
+export async function getTownCatalog(db: Db, now = Date.now()): Promise<Catalog> {
+  const { results: stores } = await db
     .prepare(
       "SELECT s.* FROM stores s WHERE EXISTS (SELECT 1 FROM meals m WHERE m.store_id = s.id AND m.available = 1) ORDER BY s.lot_index",
     )
-    .all() as unknown as Row[];
+    .all<Row>();
   const ids = new Set(stores.map((s) => s.id));
-  const meals = (db
+  const meals = (await db
     .prepare("SELECT * FROM meals WHERE available = 1 ORDER BY sort_order, id")
-    .all() as Array<{ id: string; store_id: string; name: string; price_twd: number; image_key: string; tags_json: string }>)
-    .filter((m) => ids.has(m.store_id));
+    .all<{ id: string; store_id: string; name: string; price_twd: number; image_key: string; tags_json: string }>())
+    .results.filter((m) => ids.has(m.store_id));
   return {
     catalogVersion: "town:live",
     currency: "TWD",

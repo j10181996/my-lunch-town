@@ -7,7 +7,7 @@ export const SOCIAL_SCHEMA = `CREATE TABLE IF NOT EXISTS member_social (
   last_emote_at INTEGER NOT NULL DEFAULT 0
 )`;
 
-export function socialEnabled(db: Db, memberId: string): boolean {
-  const row = db.prepare("SELECT enabled FROM member_social WHERE member_id = ?").get(memberId) as { enabled: number } | undefined;
+export async function socialEnabled(db: Db, memberId: string): Promise<boolean> {
+  const row = await db.prepare("SELECT enabled FROM member_social WHERE member_id = ?").bind(memberId).first<{ enabled: number }>();
   return row?.enabled !== 0;
 }

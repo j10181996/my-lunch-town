@@ -3,19 +3,20 @@ import { inject } from "./inject";
 import type { Hono } from "hono";
 import type { MyRoomSummary } from "../../shared/contracts";
 import { buildApp } from "../app";
-import { SAMPLE_SEED, openDb, type Db } from "../db";
+import type { DatabaseSync } from "node:sqlite";
+import { SAMPLE_SEED, asyncDb, openDb } from "../db";
 import { noopEvents } from "../context";
 import { MY_ROOMS_LIMIT } from "../rooms/history";
 import { SAMPLE_STORE_IDS } from "./fixtures";
 
 let app: Hono;
-let db: Db;
+let raw: DatabaseSync;
 let n = 0;
 const rid = () => `req-${Date.now()}-${n++}-xxxx`;
 
 beforeEach(async () => {
-  db = openDb(":memory:", SAMPLE_SEED);
-  app = await buildApp({ ctx: { db, events: noopEvents } });
+  raw = openDb(":memory:", SAMPLE_SEED);
+  app = await buildApp({ ctx: { db: asyncDb(raw), events: noopEvents } });
 });
 
 /** 一個 client = 一個 Cookie 身分；傳入 cookie 模擬同一身分的另一台裝置。 */
@@ -53,7 +54,7 @@ describe("我的團歷史", () => {
     await rain.post(`/api/rooms/${first}/join`, { nickname: "小雨", avatarId: "avatar-pink" });
     await rain.post(`/api/rooms/${first}/order-delta`, { mealId: "meal-af-pork", delta: 1, requestId: rid() });
     await kai.post(`/api/rooms/${first}/close`, { requestId: rid() });
-    db.prepare("UPDATE rooms SET created_at = created_at - 86400000 WHERE id = ?").run(first);
+    raw.prepare("UPDATE rooms SET created_at = created_at - 86400000 WHERE id = ?").run(first);
     const second = await open(rain, "週二團");
 
     const mine = await history(rain);
@@ -94,7 +95,7 @@ describe("再揪一次", () => {
     await rain.post(`/api/rooms/${old}/join`, { nickname: "小雨", avatarId: "avatar-pink" });
     await rain.post(`/api/rooms/${old}/order-delta`, { mealId: "meal-af-pork", delta: 1, requestId: rid() });
     await kai.post(`/api/rooms/${old}/close`, { requestId: rid() });
-    db.prepare("UPDATE meals SET price_twd = price_twd + 10 WHERE id = 'meal-af-pork'").run();
+    raw.prepare("UPDATE meals SET price_twd = price_twd + 10 WHERE id = 'meal-af-pork'").run();
 
     // 團員也能用自己參加過的團再揪一次，成為新團的揪團者
     const [h] = await history(rain);
