@@ -2,7 +2,7 @@
 export function servePageOrAsset(request: Request, assets: { fetch(request: Request): Promise<Response> }) {
   const url = new URL(request.url);
   if (["GET", "HEAD"].includes(request.method)
-    && (url.pathname === "/" || /^\/(?:r|shop)\/[\w-]+\/?$/.test(url.pathname))) {
+    && (url.pathname === "/" || url.pathname === "/management/stores" || /^\/(?:r|shop)\/[\w-]+\/?$/.test(url.pathname))) {
     // Fetch the canonical root; /index.html redirects to / in hosted assets.
     url.pathname = "/";
     return assets.fetch(new Request(url, request));

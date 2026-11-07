@@ -1,3 +1,4 @@
+import { listManagementStores } from "./stores/store-list";
 import { setHours } from "./stores/stores";
 import type { FastifyInstance } from "fastify";
 import type { Ctx } from "./context";
@@ -26,6 +27,10 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   const { db } = ctx;
   type P = { id: string };
   type SP = { storeId: string; mealId: string };
+
+  app.get("/api/management/stores", async (req) => ({
+    scope: "all", stores: listManagementStores(db, req.sid),
+  }));
 
   // —— 團購 ——
   app.post("/api/rooms", async (req) => createRoom(ctx, req.sid, req.body as never));

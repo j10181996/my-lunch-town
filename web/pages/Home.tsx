@@ -64,7 +64,7 @@ export function Home() {
 
   return (
     <div className="page">
-      <TopBar />
+      <TopBar><span className="spacer" /><a className="btn" {...link("/management/stores")}>管理者入口</a></TopBar>
       <main className="page-body">
         <div className="hero">
           <form className="panel" onSubmit={create}>

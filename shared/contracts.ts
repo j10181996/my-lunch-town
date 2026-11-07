@@ -344,3 +344,21 @@ export interface StoreHours { weekly: Array<Array<{ open: string; close: string 
 export interface StoreProfile { hours?: StoreHours | null }
 export interface Store { orderDeadlineAt?: number | null }
 export interface StoreAdminGateway { setHours(storeId: Id, hours: StoreHours | null): Promise<StoreProfile> }
+
+export interface ManagementStore {
+  id: Id;
+  name: string;
+  styleKey: string;
+  lotIndex: number;
+  manualStatus: StoreStatus;
+  accepting: boolean;
+  hours: StoreHours | null;
+  canViewDetails: boolean;
+  mealCount: number | null;
+  availableMealCount: number | null;
+  activeRoomCount: number | null;
+  providesDelivery: boolean | null;
+  managed: boolean | null;
+  managePath: string;
+}
+export interface ManagementStoreList { scope: "all"; stores: ManagementStore[] }

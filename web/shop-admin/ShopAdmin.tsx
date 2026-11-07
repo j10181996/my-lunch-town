@@ -138,6 +138,7 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
       <TopBar>
         <span className="sep" />
         <span className="title">店家後台</span>
+        <a className="btn" {...link("/management/stores")}>店家清單</a>
         <StoreSwitcher currentId={profile.id} />
         <span className="spacer" />
         <a className="btn" {...link("/")}>

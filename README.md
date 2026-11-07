@@ -83,3 +83,11 @@ node scripts/smoke.mjs http://localhost:3000 smoke-shots
 開團時伺服器排除非營業時段的店家及餐點，並固定當團的價格與截止時間。店家後續改時段不影響既有團。每日截止時間為選填；跨午夜營業時，早於開始時間的截止點屬於隔天。團主收單前，若有點餐店家已過截止時間，會顯示提醒；仍可確認送出，不自動取消訂單或拒絕收單。
 
 SQLite 領域 image 的相容升級在 `server/store-hours-schema.ts`，新增 nullable 的 `stores.hours_json` 與 `room_stores.order_deadline_at`，不重設舊資料。Node 啟動與 Worker 開啟 image 時共用這份冪等升級；Worker 的下一筆成功寫入會將升級後 image 與交易一起以 D1 revision 檢查提交。D1 envelope schema 不變。
+
+### 管理者入口與店家清單（#21 的清單部分）
+
+依使用者決策，先提供管理入口，平台角色及權限設計另行處理。首頁「管理者入口」前往 `/management/stores`，列出全部店家的公開摘要，提供搜尋、接單狀態篩選及進入既有店家後台的連結。
+
+`GET /api/management/stores` 的全店摘要僅含店名、類型、位置及接單狀態；菜單數量、進行中團數與詳細營業設定仍只提供給原本有權管理的 session。所有管理連結沿用原後台的權限檢查，不會因為能看到清單就自動取得編輯權限、認領店家或改寫管理者。API 不輸出 session、管理碼或其雜湊。
+
+此改動尚未完成 #21 的平台角色、邀請／接受／撤銷、多位管理者及 #38 的內部成員授權；未設定任何初始平台管理者。
