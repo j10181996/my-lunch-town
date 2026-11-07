@@ -139,8 +139,8 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
         <span className="title">店家後台</span>
         <StoreSwitcher currentId={profile.id} />
         <span className="spacer" />
-        <a className="btn" {...link("/")}>
-          回小鎮首頁
+        <a className="btn" {...link("/shop")}>
+          店家入口
         </a>
       </TopBar>
       <main className="page-body" style={{ maxWidth: 1200 }}>
