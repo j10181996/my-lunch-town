@@ -45,6 +45,31 @@ describe("Node 非同步 Db", () => {
     expect(seen).toEqual(["inside 1", "outside 0"]);
   });
 
+  it("交易外的寫入不會混進排隊中的交易，對方回滾不影響已成功的寫入", async () => {
+    const { db } = fresh();
+    // 交易已排隊但還沒 BEGIN 時發出交易外寫入；兩者之間只隔 microtask。
+    const tx = withWriteTx(db, async () => {
+      await db.prepare("INSERT INTO t (id, v) VALUES (2, 'tx')").run();
+      throw new Error("rollback");
+    });
+    const outside = await db.prepare("INSERT INTO t (id, v) VALUES (1, 'outside')").run();
+    expect(outside.meta.changes).toBe(1);
+    await expect(tx).rejects.toThrow("rollback");
+    expect((await db.prepare("SELECT v FROM t").all<{ v: string }>()).results).toEqual([{ v: "outside" }]);
+  });
+
+  it("交易外的讀取不會讀到失敗 batch 的中間結果", async () => {
+    const { db } = fresh();
+    const failing = db.batch([
+      db.prepare("INSERT INTO t (id, v) VALUES (1, 'a')"),
+      db.prepare("INSERT INTO t (id, v) VALUES (1, 'dup')"),
+    ]);
+    const seen = await count(db);
+    await expect(failing).rejects.toThrow();
+    expect(seen).toBe(0);
+    expect(await count(db)).toBe(0);
+  });
+
   it("並發交易依序執行，不會在交易內再開交易", async () => {
     const { db } = fresh();
     const order: string[] = [];

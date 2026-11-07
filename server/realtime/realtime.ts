@@ -70,7 +70,8 @@ export function attachRealtime(httpServer: HttpServer, db: Db): RoomEvents {
         return reply({ ok: false, code: "ROOM_NOT_FOUND" });
       }
       const me = await findMember(db, roomId, data.sid);
-      // 等待查詢期間可能已訂閱其他團。
+      // 等待查詢期間可能已斷線（斷線處理不會再清理這筆）或已訂閱其他團，都不能再加入與計數。
+      if (!socket.connected) return;
       if (data.roomId) return reply({ ok: false, code: "INVALID_INPUT" });
       if (!me) return reply({ ok: false, code: "SESSION_REQUIRED" });
       data.roomId = roomId;
@@ -87,6 +88,7 @@ export function attachRealtime(httpServer: HttpServer, db: Db): RoomEvents {
       if (typeof storeId !== "string") return reply({ ok: false, code: "INVALID_INPUT" });
       try {
         await requireOwner(db, data.sid, storeId);
+        if (!socket.connected) return; // 查詢期間已斷線
         (data.storeIds ??= new Set()).add(storeId);
         socket.join(`store:${storeId}`);
         reply({ ok: true });

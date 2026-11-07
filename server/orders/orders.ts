@@ -5,7 +5,7 @@ import { MAX_QTY_PER_MEAL } from "../../shared/town";
 import { lineKeyOf, normalizeNote, optionKeyOf, parseOptionGroups, resolveChoices } from "../../shared/meal-options";
 import type { Ctx } from "../context";
 import { err, withWriteTx, type Db } from "../db";
-import { buildSnapshot, bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems, requireMember } from "../rooms/rooms";
+import { buildSnapshot, bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems, readConsistently, requireMember } from "../rooms/rooms";
 import { paymentStatus } from "../rooms/payments";
 import { closeInTx, deadlinePassed } from "../rooms/deadline";
 import { requestId as checkRequestId } from "../util";
@@ -133,7 +133,11 @@ export async function getOwnerSummary(db: Db, sessionId: string, roomId: string)
   return buildSummary(db, roomId);
 }
 
-async function buildSummary(db: Db, roomId: string): Promise<OwnerSummary> {
+function buildSummary(db: Db, roomId: string): Promise<OwnerSummary> {
+  return readConsistently(db, roomId, () => readSummary(db, roomId), (s) => s.revision);
+}
+
+async function readSummary(db: Db, roomId: string): Promise<OwnerSummary> {
   const room = await getRoomRow(db, roomId);
   const catalog = await loadCatalog(db, room);
   const items = await loadItems(db, roomId);

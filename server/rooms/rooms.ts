@@ -211,7 +211,27 @@ async function myPayment(db: Db, roomId: string, memberId: string, amountTwd: nu
   return { amountTwd, status, remindedAt: status === "unpaid" ? await paymentRemindedAt(db, roomId) : null };
 }
 
-export async function buildSnapshot(db: Db, roomId: string, sessionId: string): Promise<RoomSnapshot> {
+const CONSISTENT_READ_ATTEMPTS = 5;
+
+/**
+ * 多次查詢組成的讀取（快照、每人明細）：讀完後團的 revision 沒變才回傳，否則重讀。
+ * 會改變團單內容的寫入都會遞增 revision，所以通過檢查的結果屬於同一個版本。
+ * 不依賴互動式交易，D1 也適用；一直被寫入打斷時請前端稍後重試。
+ */
+export async function readConsistently<T>(db: Db, roomId: string, read: () => Promise<T>, revisionOf: (value: T) => number): Promise<T> {
+  for (let attempt = 0; attempt < CONSISTENT_READ_ATTEMPTS; attempt++) {
+    const value = await read();
+    const now = await db.prepare("SELECT revision FROM rooms WHERE id = ?").bind(roomId).first<{ revision: number }>();
+    if (now?.revision === revisionOf(value)) return value;
+  }
+  throw err.retry();
+}
+
+export function buildSnapshot(db: Db, roomId: string, sessionId: string): Promise<RoomSnapshot> {
+  return readConsistently(db, roomId, () => readSnapshot(db, roomId, sessionId), (s) => s.room.revision);
+}
+
+async function readSnapshot(db: Db, roomId: string, sessionId: string): Promise<RoomSnapshot> {
   const { room, me } = await requireMember(db, roomId, sessionId);
   const catalog = await loadCatalog(db, room);
   const all = await loadItems(db, roomId);

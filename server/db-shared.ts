@@ -109,19 +109,27 @@ type SyncStatement = Statement & { execute(): { results: Row[]; meta: { changes:
 
 /** 把同步的 SQLite 介面包成非同步的 Db。 */
 export function fromSync(sync: SyncDb, scheduler: TxScheduler = noScheduler): Db {
+  /**
+   * 確認沒有其他交易後立刻同步執行 SQL，兩者之間不讓出執行權；
+   * 否則排隊中的交易可能在 await 的空檔先 BEGIN，交易外的 SQL 就會混進它的交易。
+   */
+  const whenIdle = async <T>(op: () => T): Promise<T> => {
+    for (;;) {
+      const wait = scheduler.idle();
+      if (!wait) return op();
+      await wait;
+    }
+  };
   const statement = (sql: string, args: unknown[]): SyncStatement => ({
     bind: (...values) => statement(sql, values),
-    async first<T>() {
-      await scheduler.idle();
-      return ((sync.prepare(sql).get(...args) as T | undefined) ?? null);
+    first<T>() {
+      return whenIdle(() => (sync.prepare(sql).get(...args) as T | undefined) ?? null);
     },
-    async all<T>() {
-      await scheduler.idle();
-      return { results: sync.prepare(sql).all(...args) as T[] };
+    all<T>() {
+      return whenIdle(() => ({ results: sync.prepare(sql).all(...args) as T[] }));
     },
-    async run() {
-      await scheduler.idle();
-      return { meta: { changes: Number(sync.prepare(sql).run(...args).changes) } };
+    run() {
+      return whenIdle(() => ({ meta: { changes: Number(sync.prepare(sql).run(...args).changes) } }));
     },
     /** batch 用：在獨佔區段內同步執行，讀取型語句回傳資料列，其餘回傳異動筆數。 */
     execute() {
