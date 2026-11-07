@@ -97,6 +97,15 @@ for (const status of ["accepted", "preparing", "ready"]) {
   await admin("POST", `/api/stores/${meal.storeId}/orders/${order.id}/status`, { status });
   assert.equal((await guest("GET", root + "/snapshot")).storeOrders.find((o) => o.storeId === meal.storeId).status, status);
 }
+// 給店家按讚（#92）：store_likes 由 openSnapshot 補建，重送不重複計數，店家後台看得到。
+await stranger("POST", root + "/like", { storeId: meal.storeId }, 401);
+await guest("POST", root + "/like", { storeId: meal.storeId });
+await guest("POST", root + "/like", { storeId: meal.storeId });
+assert.deepEqual((await guest("GET", root + "/snapshot")).likedStoreIds, [meal.storeId]);
+await guest("GET", `/api/stores/${meal.storeId}/likes`, undefined, 403);
+const likes = await admin("GET", `/api/stores/${meal.storeId}/likes`);
+assert.equal(likes.total, 1, "repeated like is counted once");
+assert.equal(likes.recent[0].roomTitle, input.title);
 await owner("PUT", root + "/payment-info", { methods: [{ type: "cash", note: "測試用現金確認" }], note: "整合測試" });
 await owner("POST", root + "/payment-info/send", {});
 assert.equal((await guest("GET", root + "/snapshot")).myPayment.amountTwd, meal.priceTwd * 8);

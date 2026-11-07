@@ -7,6 +7,7 @@ import { getTownCatalog } from "./stores/town-catalog";
 import { setHours } from "./stores/stores";
 import { geocodeAddress } from "./geocode";
 import { recommendMeal, sendEmote, setSocial } from "./rooms/social";
+import { likeStore, storeLikes } from "./stores/likes";
 import type { FastifyInstance } from "fastify";
 import type { Ctx } from "./context";
 import { createRoom, buildSnapshot, getPublicInfo, joinRoom } from "./rooms/rooms";
@@ -41,6 +42,7 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   }));
   app.post<{ Params: P }>("/api/rooms/:id/emote", async (req) => sendEmote(ctx, req.sid, req.params.id, req.body));
   app.post<{ Params: P }>("/api/rooms/:id/recommend", async (req) => recommendMeal(ctx, req.sid, req.params.id, req.body));
+  app.post<{ Params: P }>("/api/rooms/:id/like", async (req) => likeStore(ctx, req.sid, req.params.id, req.body));
   app.put<{ Params: P }>("/api/rooms/:id/social", async (req) => setSocial(ctx, req.sid, req.params.id, req.body));
 
   app.put<{ Params: P }>("/api/rooms/:id/lunch-ready", async (req) => setLunchReady(ctx, req.sid, req.params.id, req.body));
@@ -94,6 +96,7 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   );
   // GET：Worker 不寫回快照，衝突重試也不會重複打外部服務。
   app.get<{ Params: { address: string } }>("/api/geocode/:address", async (req) => geocodeAddress(req.params.address));
+  app.get<{ Params: { storeId: string } }>("/api/stores/:storeId/likes", async (req) => storeLikes(db, req.sid, req.params.storeId));
   app.get<{ Params: { storeId: string } }>("/api/stores/:storeId/orders", async (req) =>
     listStoreOrders(db, req.sid, req.params.storeId),
   );

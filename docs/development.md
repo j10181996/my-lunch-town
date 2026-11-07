@@ -104,7 +104,7 @@ API 錯誤一律回 `{ code, message }`，`code` 是 `shared/contracts.ts` 的 `
 
 遊戲畫面是 Canvas，邏輯在 `web/game/game.ts`，React 外殼是 `web/game/GameView.tsx`。素材全部以程式繪製（`web/art/`），以邏輯像素繪製後整數倍放大；場景尺寸與座標換算定義在 `shared/town.ts`，對外座標一律正規化為 0..1。外送距離不用遊戲座標：送餐位置與店家位置是真實經緯度（`GeoPoint`），以 `shared/geo.ts` 的 haversine 算直線距離；只有升級前開的舊團仍以街區座標 `deliveryPoint` 換算（`shared/delivery.ts` 的 `storeDistanceKm`）。座標由地址推算：前端只輸入地址，`GET /api/geocode/:address`（`server/geocode.ts`）在伺服器轉送 OpenStreetMap Nominatim，遵守其使用規範（識別用 User-Agent、全域每秒最多 1 次、快取、不做邊打字邊查），台灣地址解析與查詢順序在 `shared/tw-address.ts`。用 GET 是因為 Worker 的非 GET 請求會寫回快照、衝突時整段重試，會重複打外部服務。測試一律用假的 fetcher，不連外。`art-preview.html` 可在 Vite 開發伺服器下預覽素材（`http://localhost:5173/art-preview.html`）。
 
-NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；範圍與簡化之處見 [M4 黑客松展示交接](m4-demo-handoff.md)。
+NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；範圍與簡化之處見 [M4 黑客松展示交接](records/m4-demo-handoff.md)。
 
 ## 常見修改
 
@@ -147,6 +147,6 @@ Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realti
 | `scripts/smoke-bag-quests.mjs` | 任務導引後鍵盤／真觸控移動、背包獨立入口與窄版捲動 | 開發伺服器 + Chrome |
 | `scripts/smoke-mobile.mjs` | 手機尺寸與真觸控事件：搖桿走路、觸控點餐、面板收合 | 開發伺服器 + Chrome |
 
-`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`regulars.test.ts` 是常客紀錄、每日試吃與成就徽章清單；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限。
+`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`regulars.test.ts` 是常客紀錄、每日試吃與成就徽章清單；`likes.test.ts` 是給店家按讚的權限、去重與店家後台統計；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限。
 
 瀏覽器與 Sites 腳本只允許對 `localhost`／`127.0.0.1` 執行，並會寫入測試資料，請用獨立的 `DATA_DIR` 或本機 D1。
