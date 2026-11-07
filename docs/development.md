@@ -143,6 +143,7 @@ Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realti
 | `scripts/test-sites.mjs` | 對本機 Wrangler 跑多使用者 API 流程 | 本機 Worker |
 | `scripts/smoke.mjs` | 三個瀏覽器工作階段：開店、開團、點餐、收單、接單、收款 | Node 建置版 + Chrome |
 | `scripts/smoke-m4.mjs` | 雙瀏覽器：表情、NPC、收藏、換裝、點餐 | 開發伺服器 + Chrome |
+| `scripts/smoke-mobile-emotes.mjs` | 手機表情收合與真觸控發送、跨瀏覽器同步、桌面維持四顆 | 開發伺服器 + Chrome |
 | `scripts/smoke-bag-quests.mjs` | 任務導引後鍵盤／真觸控移動、背包獨立入口與窄版捲動 | 開發伺服器 + Chrome |
 | `scripts/smoke-mobile.mjs` | 手機尺寸與真觸控事件：搖桿走路、觸控點餐、面板收合 | 開發伺服器 + Chrome |
 

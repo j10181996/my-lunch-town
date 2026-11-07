@@ -8,7 +8,8 @@ import { roomGateway } from "../adapters/http";
 import { Game } from "./game";
 import { shopkeeperLine } from "./shopkeeper";
 import { ownerCall } from "./owner-calls";
-import { EMOTES, type EmoteId } from "../../shared/social";
+import { EmoteControls } from "./EmoteControls";
+import type { EmoteId } from "../../shared/social";
 import { ACHIEVEMENTS, ACCESSORIES, collectibles, readCollection, saveCollection, type AchievementId, type Collection } from "./collection";
 
 interface Props {
@@ -240,12 +241,8 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           </section>}
         </div>
       </div>
-      {!solo && <div className="town-controls">
-        <div className="emote-bar" role="group" aria-label="小鎮表情">
-          {EMOTES.map((emote) => <button key={emote.id} className="emote-btn" title={emote.label}
-            aria-label={emote.label} disabled={!online || !social || emoteBusy || socialBusy} onClick={() => void sendEmote(emote.id)}>{emote.icon}</button>)}
-        </div>
-      </div>}
+      {!solo && <EmoteControls disabled={!online || !social || emoteBusy || socialBusy}
+        onSend={(id) => void sendEmote(id)} />}
       {notice && <div className="town-notice" role="status">{notice}</div>}
       {inShop && social && !solo && <div className="shop-company" aria-live="polite">{(() => {
         const ids = new Set(presence.players.filter((p) => p.sceneId === scene && p.memberId !== snap.me.id).map((p) => p.memberId));
