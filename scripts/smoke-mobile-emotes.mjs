@@ -1,0 +1,83 @@
+// 本機限定：手機表情收合、真觸控操作、桌面維持展開與跨瀏覽器同步。
+import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
+import { chromium } from "playwright-core";
+const base = process.argv[2] ?? "http://127.0.0.1:5178";
+assert(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
+const out = process.argv[3] ?? "/tmp/lunch-town-83-shots";
+mkdirSync(out, { recursive: true });
+const browser = await chromium.launch({ channel: "chrome", headless: true });
+try {
+  const desktop = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+  const owner = await desktop.newPage(), guest = await mobile.newPage(), errors = [];
+  for (const p of [owner, guest]) p.on("pageerror", (e) => errors.push(e.message));
+  const created = await desktop.request.post(base + "/api/rooms", { data: { title: "手機表情團", nickname: "桌面團長", requestId: crypto.randomUUID(), storeIds: ["store-af", "store-tree", "store-green"] } });
+  assert.equal(created.status(), 200);
+  const { invitePath, snapshot } = await created.json();
+  await owner.goto(base + invitePath); await guest.goto(base + invitePath);
+  await guest.getByLabel(/暱稱/).fill("手機夥伴"); await guest.getByRole("button", { name: "加入午餐小鎮" }).tap();
+  await guest.waitForFunction(() => !!window.__lunchGame);
+  const joined = await (await mobile.request.get(base + `/api/rooms/${snapshot.room.id}/snapshot`)).json();
+  const toggle = guest.getByRole("button", { name: "表情", exact: true });
+  const group = guest.getByRole("group", { name: "小鎮表情", exact: true });
+  assert.equal(await owner.getByRole("group", { name: "小鎮表情" }).getByRole("button").count(), 4);
+  assert.equal(await owner.getByRole("button", { name: "表情", exact: true }).count(), 0);
+  await toggle.waitFor(); assert.equal(await group.count(), 0);
+  const overlap = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  for (const size of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 412, height: 915 }, { width: 844, height: 390 }]) {
+    await guest.setViewportSize(size);
+    const box = await toggle.boundingBox(); assert(box.width <= 48 && box.height <= 52);
+    assert(box.width >= 44 && box.height >= 44);
+    for (const tool of [".quest-toggle", ".bag-toggle"]) assert(!overlap(box, await guest.locator(tool).boundingBox()), "入口不能互相遮擋");
+    await toggle.tap(); assert.equal(await group.getByRole("button").count(), 4);
+    const buttons = await group.getByRole("button").all();
+    const boxes = await Promise.all(buttons.map((button) => button.boundingBox()));
+    assert.equal(boxes[0].y, boxes[1].y); assert.equal(boxes[0].x, boxes[2].x); assert(boxes[2].y > boxes[0].y);
+    const stage = await guest.locator(".stage").boundingBox(), panel = await group.boundingBox();
+    assert(panel.x >= stage.x && panel.y >= stage.y && panel.x + panel.width <= stage.x + stage.width && panel.y + panel.height <= stage.y + stage.height, "四種表情不能被街景裁切");
+    for (const b of boxes) assert(b.width >= 44 && b.height >= 44);
+    assert.equal(await guest.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await toggle.tap(); assert.equal(await group.count(), 0);
+  }
+  console.log("✓ 320／390／412px 與橫向：單顆入口、44px 觸控區、2×2 面板、無重疊或裁切");
+  await guest.setViewportSize({ width: 390, height: 844 });
+  await guest.screenshot({ path: out + "/01-mobile-collapsed.png" });
+  for (const [label, icon] of [["揮揮手", "👋"], ["比愛心", "❤️"], ["好想吃", "😋"], ["開心慶祝", "🎉"]]) {
+    await toggle.tap();
+    const response = guest.waitForResponse((r) => r.url().endsWith("/emote") && r.request().method() === "POST");
+    await group.getByRole("button", { name: label, exact: true }).tap();
+    assert.equal(await group.count(), 0, "選完立即收起"); assert.equal((await response).status(), 200);
+    await owner.waitForFunction(({ id, icon }) => window.__lunchGame.state().bubbles.some(([member, bubble]) => member === id && bubble.text.includes(icon)), { id: joined.me.id, icon });
+    await toggle.waitFor({ state: "visible" });
+    await guest.waitForFunction(() => !document.querySelector('.mobile-emote-toggle').disabled);
+  }
+  console.log("✓ 手機四種表情皆可發送、選完自動收起、桌面夥伴同步看到泡泡");
+  await toggle.tap(); await guest.screenshot({ path: out + "/02-mobile-expanded.png" });
+  const stage = await guest.locator(".stage").boundingBox();
+  await guest.touchscreen.tap(stage.x + stage.width / 2, stage.y + stage.height / 2);
+  assert.equal(await group.count(), 0, "點街景空白收起");
+  await toggle.tap(); await guest.getByRole("button", { name: "背包與小鎮設定", exact: true }).tap();
+  assert.equal(await group.count(), 0, "點背包收起表情");
+  const bag = guest.getByRole("region", { name: "背包與小鎮設定" });
+  await bag.getByLabel("社交表情與點餐泡泡").uncheck(); assert(await toggle.isDisabled());
+  await bag.getByLabel("社交表情與點餐泡泡").check();
+  await bag.getByRole("button", { name: "關閉背包" }).tap();
+  await guest.getByRole("button", { name: /新手任務/ }).tap();
+  await guest.getByRole("button", { name: "帶我逛店" }).tap();
+  const scene = await guest.evaluate(() => window.__lunchGame.state().scene);
+  assert(scene.startsWith("shop:"));
+  await toggle.tap(); await guest.keyboard.press("Escape");
+  assert.equal(await group.count(), 0);
+  assert.equal(await guest.evaluate(() => window.__lunchGame.state().scene), scene, "Esc 只關表情，不意外出店");
+  await toggle.tap(); await guest.setViewportSize({ width: 1440, height: 960 });
+  assert.equal(await group.getByRole("button").count(), 4);
+  assert.equal(await toggle.count(), 0);
+  await guest.setViewportSize({ width: 390, height: 844 }); assert.equal(await group.count(), 0, "切回手機仍收合");
+  await owner.getByRole("button", { name: "揮揮手", exact: true }).click();
+  assert.equal(await owner.getByRole("group", { name: "小鎮表情" }).getByRole("button").count(), 4, "桌面選完維持四顆");
+  assert.equal((await (await mobile.request.get(base + `/api/rooms/${snapshot.room.id}/snapshot`)).json()).myTotalQuantity, 0, "操作表情不會誤點餐");
+  await owner.screenshot({ path: out + "/03-desktop-unchanged.png" });
+  assert.deepEqual(errors, []);
+  console.log("✓ 點空白／背包與 Esc 收起、社交關閉禁用、尺寸切換、桌面維持原樣、無誤點餐與 pageerror");
+} finally { await browser.close(); }
