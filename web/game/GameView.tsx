@@ -8,6 +8,7 @@ import { roomGateway } from "../adapters/http";
 import { Game } from "./game";
 import { shopkeeperLine } from "./shopkeeper";
 import { ownerCall } from "./owner-calls";
+import { doorEffects, ownerOrderCall } from "./order-progress";
 import { EmoteControls } from "./EmoteControls";
 import type { EmoteId } from "../../shared/social";
 import { ACHIEVEMENTS, ACCESSORIES, collectibles, readCollection, saveCollection, type AchievementId, type Collection } from "./collection";
@@ -120,6 +121,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           }),
           roomClosed: s.room.status === "closed",
           deadlineAt: s.catalog.stores.find((store) => store.id === storeId)?.orderDeadlineAt ?? null,
+          orderStatus: s.storeOrders?.find((order) => order.storeId === storeId)?.status ?? null,
           solo, notInRoom: !!streetStore, talk, now: Date.now(),
         });
       },
@@ -189,6 +191,16 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
     const timer = setInterval(check, 1000);
     return () => clearInterval(timer);
   }, [solo, snap.room.status, snap.room.deadlineAt]);
+
+  // 出餐進度（#87）：店門口演出跟著目前狀態；團主只在親眼看到狀態變化時喊話。
+  const previousOrders = useRef(snap.storeOrders);
+  useEffect(() => {
+    gameRef.current?.setDoorEffects(doorEffects(snap.storeOrders));
+    const text = solo ? null : ownerOrderCall(previousOrders.current, snap.storeOrders);
+    previousOrders.current = snap.storeOrders;
+    const owner = snap.members.find((m) => m.role === "owner");
+    if (text && owner) gameRef.current?.showBubble(owner.id, text, 5000);
+  }, [solo, snap.storeOrders, snap.members]);
 
   useEffect(() => {
     if (online) gameRef.current?.announce();

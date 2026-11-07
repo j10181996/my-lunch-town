@@ -3,6 +3,7 @@ import { layoutMapLabels, type MapLabel } from "./text-layout";
 import { animalFrame } from "../art/animals";
 import { createTownFriends, friendPose, type TownFriend, type FriendPose } from "./town-life";
 import { ACHIEVEMENTS, type Accessory, type AchievementId } from "./collection";
+import type { DoorEffect } from "./order-progress";
 import type { Point, Direction, Meal, MoveInput, PlayerPresence, SceneId, Store } from "../../shared/contracts";
 import { STREET_W, STREET_H, STREET_SPAWN, lotDoor, sceneSize, viewSize } from "../../shared/town";
 import { CHAR_H, CHAR_W, characterFrames } from "../art/characters";
@@ -103,6 +104,7 @@ export class Game {
   private accessory: Accessory = "none";
   private badge: AchievementId | undefined;
   private items: Array<{ id: string; x: number; y: number; icon: string }> = [];
+  private doorEffects = new Map<string, DoorEffect>();
   private lastInteraction = 0;
   private nearClerk = false;
   private clerkTalks = 0;
@@ -119,6 +121,8 @@ export class Game {
     this.accessory = accessory; this.badge = badge; this.dirty = true;
   }
   setCollectibles(items: typeof this.items) { this.items = items; }
+  /** 店門口的出餐演出（#87）：製作中冒煙、完成放便當袋。 */
+  setDoorEffects(effects: Map<string, DoorEffect>) { this.doorEffects = effects; }
 
   private setNearFriend(friend: TownFriend | null) {
     if (this.nearFriend?.id === friend?.id) return;
@@ -326,7 +330,7 @@ export class Game {
   /** 唯讀的除錯資訊：自動化測試用來導航（不提供任何改變狀態的方法）。 */
   debugState() {
     return { x: this.me.x, y: this.me.y, scene: this.sceneId, nearDoor: this.nearDoor?.id ?? null, nearProduct: this.nearProduct?.mealId ?? null,
-      nearFriend: this.nearFriend?.name ?? null, nearClerk: this.nearClerk, friends: this.visibleFriends().map((f) => ({ ...f, pose: this.friendPoses.get(f.id) })),
+      nearFriend: this.nearFriend?.name ?? null, nearClerk: this.nearClerk, doorEffects: Object.fromEntries(this.doorEffects), friends: this.visibleFriends().map((f) => ({ ...f, pose: this.friendPoses.get(f.id) })),
       bubbles: [...this.bubbles].filter(([, b]) => b.until > performance.now()), accessory: this.accessory,
       items: this.items, remotes: [...this.remotes].map(([id, r]) => ({ id, scene: r.sceneId, accessory: r.accessory, badge: r.badge })) };
   }
@@ -592,6 +596,12 @@ export class Game {
     b.setTransform(1, 0, 0, 1, -cam.x, -cam.y); // 以下以世界座標繪製
     if (this.art) b.drawImage(this.art.background, 0, 0);
     if (this.nearProduct) drawProductHighlight(b, this.nearProduct, performance.now());
+    const effectDoors = this.sceneId !== "street" ? [] : this.stores.flatMap((s) => {
+      const effect = this.doorEffects.get(s.id);
+      return effect ? [{ effect, x: Math.round(s.door.x * STREET_W), y: Math.round(s.door.y * STREET_H) }] : [];
+    });
+    // 便當袋在地上，先畫，角色可以站在它前面。
+    for (const d of effectDoors) if (d.effect === "bag") drawTakeoutBag(b, d.x + 13, d.y - 1, performance.now());
 
     type Draw = { id: string; a: Actor; avatarId: string; name: string; self: boolean; friend?: TownFriend; accessory?: Accessory; badge?: AchievementId };
     const draws: Draw[] = [];
@@ -617,6 +627,8 @@ export class Game {
       if (d.accessory && d.accessory !== "none") drawAccessory(b, d.a.x, d.a.y, d.a.dir, d.accessory);
     }
     if (this.art?.foreground) b.drawImage(this.art.foreground, 0, 0);
+    // 煙從屋頂右側的煙囪（門往右 33、往上 69）冒出，畫在最上層。
+    for (const d of effectDoors) if (d.effect === "smoke") drawKitchenSmoke(b, d.x + 33, d.y - 69, performance.now());
 
     if (this.sceneId === "street" && this.deliveryPoint) {
       const x = Math.round(this.deliveryPoint.x * STREET_W);
@@ -806,6 +818,52 @@ function catalogSig(stores: Store[], meals: Meal[], streetStores: StreetStore[])
 }
 
 /** 選中的商品：描邊框加上會上下跳的小箭頭。 */
+/** 製作中：三團煙輪流從煙囪升起、變大、變淡。 */
+function drawKitchenSmoke(b: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  // 草地上淺色煙不明顯：煙團加灰色描邊，前段幾乎不透明。
+  for (let i = 0; i < 3; i++) {
+    const p = (t / 1600 + i / 3) % 1;
+    const size = 4 + Math.round(p * 4);
+    const px = Math.round(x + Math.sin(p * 5 + i) * 3 - size / 2);
+    const py = Math.round(y - p * 24 - size);
+    b.globalAlpha = Math.min(1, 1.3 * (1 - p));
+    b.fillStyle = "#8f8a80";
+    b.fillRect(px - 1, py, size + 2, size);
+    b.fillRect(px, py - 1, size, size + 2);
+    b.fillStyle = "#f2eee6";
+    b.fillRect(px, py, size, size);
+    b.fillStyle = "#ffffff";
+    b.fillRect(px + 1, py + 1, Math.max(1, size - 3), 1);
+  }
+  b.globalAlpha = 1;
+}
+
+/** 完成：門邊一袋外帶便當，提把上偶爾閃一下提醒。 */
+function drawTakeoutBag(b: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  b.fillStyle = "#00000030";
+  b.fillRect(x - 5, y, 11, 2);
+  b.fillStyle = "#7a5230";
+  b.fillRect(x - 2, y - 13, 1, 4);
+  b.fillRect(x + 2, y - 13, 1, 4);
+  b.fillRect(x - 2, y - 13, 5, 1);
+  b.fillStyle = "#c9935a";
+  b.fillRect(x - 4, y - 9, 9, 9);
+  b.fillStyle = "#e0b27a";
+  b.fillRect(x - 4, y - 9, 9, 2);
+  b.fillStyle = "#8d5f34";
+  b.fillRect(x - 4, y - 1, 9, 1);
+  b.fillRect(x + 4, y - 9, 1, 9);
+  b.fillStyle = "#fff3d6";
+  b.fillRect(x - 2, y - 5, 4, 2);
+  b.fillStyle = "#e5574a";
+  b.fillRect(x - 1, y - 5, 2, 1);
+  if (Math.floor(t / 400) % 3 === 0) {
+    b.fillStyle = "#ffe27a";
+    b.fillRect(x + 5, y - 15, 1, 3);
+    b.fillRect(x + 4, y - 14, 3, 1);
+  }
+}
+
 function drawProductHighlight(b: CanvasRenderingContext2D, p: ProductSlot, t: number) {
   const x0 = Math.round(p.x - p.size / 2) - 2;
   const y0 = p.y - 2;
