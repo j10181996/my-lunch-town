@@ -1,3 +1,4 @@
+import { StoreList } from "./management/StoreList";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
@@ -12,6 +13,7 @@ import { NotFound } from "./pages/NotFound";
 function App() {
   const path = usePath();
   let m: RegExpMatchArray | null;
+  if (path === "/management/stores") return <StoreList />;
   if (path === "/") return <Home />;
   if ((m = path.match(/^\/r\/([\w-]+)\/?$/))) return <RoomPage key={m[1]} roomId={m[1]} />;
   if (path === "/shop" || path === "/shop/") return <ShopHome />;

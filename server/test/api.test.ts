@@ -87,6 +87,15 @@ describe("開團與加入", () => {
     expect(b.body.snapshot.room.id).toBe(a.body.snapshot.room.id);
   });
 
+  it("團長開團時可選角色；未選或無效時用預設角色", async () => {
+    const pick = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", avatarId: "avatar-green", requestId: rid() });
+    expect(pick.body.snapshot.members[0].avatarId).toBe("avatar-green");
+    const bad = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", avatarId: "nope", requestId: rid() });
+    expect(bad.body.snapshot.members[0].avatarId).toBe("avatar-blue");
+    const { created } = await openRoom();
+    expect(created.snapshot.members[0].avatarId).toBe("avatar-blue");
+  });
+
   it("重名以後綴區分；無效房間 404", async () => {
     const { roomId } = await openRoom();
     const dup = await client().post(`/api/rooms/${roomId}/join`, { nickname: "阿凱", avatarId: "avatar-pink" });
@@ -719,7 +728,7 @@ describe("團主收款資料與人工確認", () => {
     const base = `/api/rooms/${roomId}`;
     const draft = await owner.put(`${base}/payment-info`, info);
     expect(draft.status).toBe(200);
-    expect(draft.body.payment).toEqual({ info, sentAt: null, ownerNickname: "阿凱" });
+    expect(draft.body.payment).toEqual({ info, sentAt: null, ownerNickname: "阿凱", remindedAt: null });
     expect((await rain.get(`${base}/snapshot`)).body.payment).toBeNull();
     expect((await rain.get(`${base}/snapshot`)).body.myPayment).toBeNull();
     expect(await owner.post(`${base}/payment-info/send`)).toMatchObject({
@@ -731,10 +740,13 @@ describe("團主收款資料與人工確認", () => {
     const sent = (await owner.post(`${base}/payment-info/send`)).body;
     expect(sent.room.revision).toBe(before + 1);
     expect(sent.payment.sentAt).toEqual(expect.any(Number));
+    const { remindedAt: _ownerOnly, ...memberView } = sent.payment;
     expect((await rain.get(`${base}/snapshot`)).body).toMatchObject({
-      payment: sent.payment, myPayment: { amountTwd: 230, status: "unpaid" },
+      payment: memberView, myPayment: { amountTwd: 230, status: "unpaid", remindedAt: null },
     });
-    expect((await lily.get(`${base}/snapshot`)).body.myPayment).toEqual({ amountTwd: 60, status: "unpaid" });
+    expect((await rain.get(`${base}/snapshot`)).body.payment).not.toHaveProperty("remindedAt");
+    expect((await lily.get(`${base}/snapshot`)).body.myPayment)
+      .toEqual({ amountTwd: 60, status: "unpaid", remindedAt: null });
     expect(sent.myPayment).toBeNull();
     expect((await empty.get(`${base}/snapshot`)).body.myPayment).toBeNull();
     const events = changes.length;
@@ -745,7 +757,8 @@ describe("團主收款資料與人工確認", () => {
     const saved = (await owner.put(`${base}/payment-info`, updated)).body;
     expect(saved.room.revision).toBe(sent.room.revision + 1);
     expect(saved.payment).toEqual({ ...sent.payment, info: updated });
-    expect((await rain.get(`${base}/snapshot`)).body.payment).toEqual(saved.payment);
+    const { remindedAt: _savedOwnerOnly, ...savedMemberView } = saved.payment;
+    expect((await rain.get(`${base}/snapshot`)).body.payment).toEqual(savedMemberView);
   });
   it("回報、確認、取消與直接確認；重試不遞增也不發通知；彙總僅計 confirmed", async () => {
     const { owner, roomId, rain, lily, rainId, lilyId } = await setup();

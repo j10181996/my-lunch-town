@@ -1,3 +1,5 @@
+import { listManagementStores } from "./stores/store-list";
+import { setHours } from "./stores/stores";
 import { sendEmote, setSocial } from "./rooms/social";
 import type { FastifyInstance } from "fastify";
 import type { Ctx } from "./context";
@@ -20,13 +22,16 @@ import {
 
 import { listStoreOrders, updateStoreOrderStatus } from "./orders/storeOrders";
 
-import { confirmPayment, reportPayment, sendPaymentInfo, setPaymentInfo } from "./rooms/payments";
+import { confirmPayment, remindUnpaid, reportPayment, sendPaymentInfo, setPaymentInfo } from "./rooms/payments";
 
 export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string) {
   const { db } = ctx;
   type P = { id: string };
   type SP = { storeId: string; mealId: string };
 
+  app.get("/api/management/stores", async (req) => ({
+    scope: "all", stores: listManagementStores(db, req.sid),
+  }));
   app.post<{ Params: P }>("/api/rooms/:id/emote", async (req) => sendEmote(ctx, req.sid, req.params.id, req.body));
   app.put<{ Params: P }>("/api/rooms/:id/social", async (req) => setSocial(ctx, req.sid, req.params.id, req.body));
 
@@ -53,12 +58,17 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   app.post<{ Params: P }>("/api/rooms/:id/payment-info/send", async (req) =>
     sendPaymentInfo(ctx, req.sid, req.params.id),
   );
+  app.post<{ Params: P }>("/api/rooms/:id/payment/remind", async (req) =>
+    remindUnpaid(ctx, req.sid, req.params.id),
+  );
   app.post<{ Params: P }>("/api/rooms/:id/payment/report", async (req) =>
     reportPayment(ctx, req.sid, req.params.id),
   );
   app.post<{ Params: P & { memberId: string } }>("/api/rooms/:id/payment/:memberId/confirm", async (req) =>
     confirmPayment(ctx, req.sid, req.params.id, req.params.memberId, req.body),
   );
+
+  app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/hours", async (req) => setHours(db, req.sid, req.params.storeId, req.body));
 
   // —— 店家 ——
   app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/delivery", async (req) =>

@@ -1,3 +1,4 @@
+import { storeOpening, validateStoreHours } from "../../shared/store-hours";
 import type {
   AdminMeal,
   CreateStoreInput,
@@ -22,17 +23,18 @@ interface StoreRow {
   owner_session_id: string | null;
   is_sample: number;
   delivery_json: string | null;
+  hours_json: string | null;
 }
 
 const LOT_INDEXES = LOTS.map((l) => l.index);
 
 export function getTown(db: Db): TownLot[] {
-  const rows = db.prepare("SELECT id, name, style_key, lot_index, status FROM stores").all() as unknown as StoreRow[];
+  const rows = db.prepare("SELECT * FROM stores").all() as unknown as StoreRow[];
   return LOTS.map((lot) => {
     const s = rows.find((r) => r.lot_index === lot.index);
     return {
       index: lot.index,
-      store: s ? { id: s.id, name: s.name, styleKey: s.style_key, status: s.status } : null,
+      store: s ? { id: s.id, name: s.name, styleKey: s.style_key, status: s.status === "open" && !storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null).open ? "resting" : s.status } : null,
     };
   });
 }
@@ -54,6 +56,7 @@ function loadProfile(db: Db, storeId: string): StoreProfile {
     status: s.status,
     isSample: s.is_sample === 1,
     activeRoomCount: active.n,
+    hours: s.hours_json ? JSON.parse(s.hours_json) : null,
     delivery: s.delivery_json === null ? null : JSON.parse(s.delivery_json),
     meals: meals.map(
       (m): AdminMeal => ({
@@ -303,6 +306,17 @@ export function setDelivery(db: Db, sessionId: string, storeId: string, input: u
     }
     db.prepare("UPDATE stores SET delivery_json = ?, updated_at = ? WHERE id = ?")
       .run(JSON.stringify(rules), Date.now(), storeId);
+    return loadProfile(db, storeId);
+  });
+}
+
+export function setHours(db: Db, sessionId: string, storeId: string, input: unknown): StoreProfile {
+  return withWriteTx(db, () => {
+    requireOwner(db, sessionId, storeId);
+    let hours;
+    try { hours = validateStoreHours(input); } catch (e) { throw err.invalid((e as Error).message); }
+    db.prepare("UPDATE stores SET hours_json = ?, updated_at = ? WHERE id = ?")
+      .run(hours ? JSON.stringify(hours) : null, Date.now(), storeId);
     return loadProfile(db, storeId);
   });
 }

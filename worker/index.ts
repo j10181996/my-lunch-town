@@ -1,10 +1,12 @@
 import type { MoveInput, PlayerPresence } from "../shared/contracts";
 import type { Ctx } from "../server/context";
+import { PAYMENT_REMINDER_SCHEMA } from "../server/rooms/payment-schema";
 import { requireMember } from "../server/rooms/rooms";
 import { requireOwner } from "../server/stores/stores";
 import { randomId } from "../server/util";
 import { AppError, err, exportSnapshot, openSnapshot } from "./db";
 import { dispatch } from "./router";
+import { servePageOrAsset } from "./assets";
 
 // These structural types keep the Node development server independent of Wrangler.
 interface Statement {
@@ -89,7 +91,7 @@ async function synchronize(env: Env, ctx: Ctx, sid: string, path: string, body: 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+    if (!url.pathname.startsWith("/api/")) return servePageOrAsset(request, env.ASSETS);
     const headers = new Headers({ "cache-control": "private, no-store", "content-type": "application/json; charset=utf-8", "x-content-type-options": "nosniff" });
     try {
       if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return new Response(null, { status: 405, headers });
@@ -111,6 +113,8 @@ export default {
         const stored = await load(env);
         const { db, raw } = await openSnapshot(stored.bytes);
         try {
+          // 舊快照沒有後來新增的資料表時在記憶體補建，寫入時一併保存。
+          db.exec(PAYMENT_REMINDER_SCHEMA);
           db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").run(sid, Date.now());
           const ctx: Ctx = { db, events: {
             roomChanged() {}, storeOrdersChanged() {},

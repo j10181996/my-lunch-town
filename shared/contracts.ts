@@ -91,6 +91,7 @@ export interface CreateRoomInput {
   title: string;
   nickname: string;
   requestId: string; // 同一工作階段的開團重試使用相同 ID
+  avatarId?: string; // 團長角色；省略或無效時用預設角色
 }
 export interface JoinInput { nickname: string; avatarId: string }
 export interface OrderDeltaInput {
@@ -301,10 +302,13 @@ export type PaymentMethod =
   | {
     type: "linepay";
     id: string;
+    /** 團主從 App 複製的收款連結；有填才產生 QR code。 */
+    link?: string;
   }
   | {
     type: "jkopay";
     id: string;
+    link?: string;
   }
   | {
     type: "cash";
@@ -324,10 +328,14 @@ export interface RoomSnapshot {
     info: PaymentInfo;
     sentAt: number | null;
     ownerNickname: string;
+    /** 僅團主可見：最近一次提醒未付款的時間。 */
+    remindedAt?: number | null;
   } | null;
   myPayment?: {
     amountTwd: number;
     status: PaymentStatus;
+    /** 僅在仍未付款時出現：團主最近一次提醒的時間。 */
+    remindedAt?: number | null;
   } | null;
 }
 export interface OwnerSummaryPerson {
@@ -341,3 +349,27 @@ export interface OwnerSummary {
     totalTwd: number;
   };
 }
+
+/** Sunday=0. End before start means the next day; intervals are [open, close). */
+export interface StoreHours { weekly: Array<Array<{ open: string; close: string }>>; cutoff: string | null }
+export interface StoreProfile { hours?: StoreHours | null }
+export interface Store { orderDeadlineAt?: number | null }
+export interface StoreAdminGateway { setHours(storeId: Id, hours: StoreHours | null): Promise<StoreProfile> }
+
+export interface ManagementStore {
+  id: Id;
+  name: string;
+  styleKey: string;
+  lotIndex: number;
+  manualStatus: StoreStatus;
+  accepting: boolean;
+  hours: StoreHours | null;
+  canViewDetails: boolean;
+  mealCount: number | null;
+  availableMealCount: number | null;
+  activeRoomCount: number | null;
+  providesDelivery: boolean | null;
+  managed: boolean | null;
+  managePath: string;
+}
+export interface ManagementStoreList { scope: "all"; stores: ManagementStore[] }
