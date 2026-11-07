@@ -1,3 +1,4 @@
+import { PARTY_SCHEMA } from "./rooms/party-schema";
 import { migrateStoreHours } from "./store-hours-schema";
 import { SOCIAL_SCHEMA } from "./rooms/social-schema";
 import { hashKey, withWriteTx } from "./db-shared";
@@ -129,6 +130,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
   db.exec(SOCIAL_SCHEMA);
+  db.exec(PARTY_SCHEMA);
   migrateDelivery(db, seedFile);
   migratePayment(db);
   seedIfEmpty(db, seedFile);

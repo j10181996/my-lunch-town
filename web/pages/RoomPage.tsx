@@ -1,3 +1,6 @@
+import { LunchPartyPanel } from "../journey/LunchPartyPanel";
+import { Celebration } from "../journey/Celebration";
+import "../journey/journey.css";
 import { OrderDeadlineNotice } from "../ordering/OrderDeadlineNotice";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { MoveInput, RoomSnapshot, SceneId } from "../../shared/contracts";
@@ -104,6 +107,9 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
   const [closeError, setCloseError] = useState("");
   const [showFeedback, setShowFeedback] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [partyBusy, setPartyBusy] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const seenCelebration = useRef(0);
   const [nearMealId, setNearMealId] = useState<string | null>(null);
 
   const isOwner = snap.me.role === "owner";
@@ -121,8 +127,30 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
   }, [feedback]);
 
   useEffect(() => {
-    gameRef.current?.setEnabled(!invite && !confirmClose && !paymentSettings && exportText === null);
-  }, [invite, confirmClose, paymentSettings, exportText]);
+    gameRef.current?.setEnabled(!invite && !confirmClose && !paymentSettings && !photoOpen && exportText === null);
+  }, [invite, confirmClose, paymentSettings, exportText, photoOpen]);
+
+  useEffect(() => {
+    const celebration = snap.lunchParty?.celebration;
+    if (!celebration || snap.lunchParty?.readyMemberIds.length !== snap.members.length
+      || !celebration.members.some((m) => m.id === snap.me.id)
+      || invite || confirmClose || paymentSettings || exportText !== null) return;
+    const key = `lunch-town:celebration:${snap.room.id}:${snap.me.id}`;
+    let saved = seenCelebration.current;
+    try { saved = Math.max(saved, Number(sessionStorage.getItem(key)) || 0); } catch { /* 儲存受限時以目前分頁記憶體判斷。 */ }
+    if (celebration.id <= saved) return;
+    seenCelebration.current = celebration.id;
+    try { sessionStorage.setItem(key, String(celebration.id)); } catch { /* 儲存受限時以目前分頁記憶體判斷。 */ }
+    setPhotoOpen(true);
+  }, [snap.lunchParty?.celebration?.id, snap.lunchParty?.readyMemberIds.length, snap.members.length, snap.room.id, snap.me.id, invite, confirmClose, paymentSettings, exportText]);
+
+  async function setLunchReady(ready: boolean) {
+    if (partyBusy) return;
+    setPartyBusy(true);
+    try { room.applySnapshot(await roomGateway.setLunchReady(snap.room.id, ready)); }
+    catch (e) { room.say("error", errorText(e)); }
+    finally { setPartyBusy(false); }
+  }
 
   const onMove = useCallback((m: MoveInput) => roomGateway.move(snap.room.id, m), [snap.room.id]);
 
@@ -212,7 +240,7 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
           presence={presence}
           online={conn === "online"}
           canOrder={canEdit}
-          controlsEnabled={!invite && !confirmClose && !paymentSettings && exportText === null}
+          controlsEnabled={!invite && !confirmClose && !paymentSettings && !photoOpen && exportText === null}
           onPickProduct={(id) => room.change(id, 1)}
           onNearProduct={setNearMealId}
           onReady={(g) => (gameRef.current = g)}
@@ -222,9 +250,11 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
 
         <button type="button" className="mobile-panel-toggle" aria-expanded={!panelCollapsed} aria-controls="room-order-panel"
           onClick={() => setPanelCollapsed(!panelCollapsed)}>
-          {panelCollapsed ? "▲ 展開菜單與訂單" : "▼ 收合菜單，放大街景"} · 我的訂單 {snap.myTotalQuantity} 份
+          {panelCollapsed ? "▲ 展開菜單與訂單" : "▼ 收合菜單，放大街景"} · {snap.lunchParty?.readyMemberIds.length ?? 0}／{snap.members.length} 人選好
         </button>
         <aside className="side" id="room-order-panel">
+          <LunchPartyPanel snap={snap} disabled={!canEdit || Object.keys(pending).length > 0} busy={partyBusy}
+            onReady={(ready) => void setLunchReady(ready)} onPhoto={() => setPhotoOpen(true)} />
           {conn === "offline" && <div className="banner error">連線中斷，暫停修改；恢復後會自動同步</div>}
           {resolving && <div className="banner info">正在確認先前未完成的操作…</div>}
           {closed && <div className="banner info">已收單，訂單已鎖定，不能再修改</div>}
@@ -300,6 +330,8 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
           )}
         </aside>
       </div>
+
+      {photoOpen && snap.lunchParty?.celebration && <Celebration key={snap.lunchParty.celebration.id} celebration={snap.lunchParty.celebration} onClose={() => setPhotoOpen(false)} />}
 
       {invite && (
         <Modal title="邀請朋友加入" onClose={() => setInvite(false)}>
