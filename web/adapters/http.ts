@@ -24,6 +24,7 @@ let socket: Socket | null = null;
 const bubbleListeners = new Set<(b: PlayerBubble) => void>();
 
 export interface RoomGatewayExt extends RoomGateway {
+  setLunchReady(roomId: string, ready: boolean): Promise<RoomSnapshot>;
   sendEmote(roomId: string, emote: EmoteId): Promise<{ text: string }>;
   setSocial(roomId: string, enabled: boolean): Promise<{ enabled: boolean }>;
   setPaymentInfo(roomId: string, info: PaymentInfo): Promise<RoomSnapshot>;
@@ -36,6 +37,7 @@ export interface RoomGatewayExt extends RoomGateway {
 }
 
 export const roomGateway: RoomGatewayExt = {
+  setLunchReady: (id, ready) => request("PUT", `/api/rooms/${id}/lunch-ready`, { ready }),
   sendEmote: (id, emote) => request("POST", `/api/rooms/${id}/emote`, { emote }),
   setSocial: (id, enabled) => request("PUT", `/api/rooms/${id}/social`, { enabled }),
   setPaymentInfo: (id, info) => request("PUT", `/api/rooms/${id}/payment-info`, info),

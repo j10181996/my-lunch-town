@@ -64,7 +64,12 @@ export interface StoreTotal {
   totalQuantity: number;
   totalTwd: number;
 }
+export interface LunchParty {
+  readyMemberIds: string[];
+  celebration: { id: number; members: Array<Pick<Member, "id" | "nickname" | "avatarId">> } | null;
+}
 export interface RoomSnapshot {
+  lunchParty?: LunchParty;
   socialEnabled?: boolean;
   room: Room;
   me: Member;
