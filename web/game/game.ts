@@ -326,6 +326,8 @@ export class Game {
 
   /** 回街上，出生在該店門外，不會立即再進店（需再按 E）。 */
   leaveStore() {
+    // 任務也會呼叫返回街道；已在街上時不可套用出店座標，避免落入建築碰撞區。
+    if (this.sceneId === "street") return;
     const storeId = this.sceneId.startsWith("shop:") ? this.sceneId.slice(5) : null;
     const store = this.stores.find((s) => s.id === storeId);
     this.sceneId = "street";
