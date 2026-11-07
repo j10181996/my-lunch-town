@@ -4,6 +4,14 @@
 
 - 啟動、建置、部署：[README.md](README.md)
 - 架構、資料流、常見修改步驟：[docs/development.md](docs/development.md)，動手前先讀
+- 分支、commit、PR 與合併流程：[docs/git-flow.md](docs/git-flow.md)
+
+## Git
+
+- 從最新 `origin/main` 開分支，命名 `<類型>/issue-<編號>-<簡述>`；不直接推送或 force push `main`。
+- Commit 用 Conventional Commits 前綴，描述用繁中（例：`feat: 分開店家入口與一般使用者入口`）。
+- PR 目標 `main`，描述含目的、`## 變更`、`## 驗證`（沒跑的檢查也要寫），完整完成用 `Closes #N`，部分完成用 `Refs #N`。
+- 沒有 CI：開 PR 前自己跑 `npm run typecheck`、`npm test`、`npm run build`。
 
 ## 指令
 

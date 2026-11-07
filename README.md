@@ -73,6 +73,7 @@ node scripts/smoke.mjs http://localhost:3000 smoke-shots
 目前決策與工作範圍以 [GitHub issues](https://github.com/j10181996/my-lunch-town/issues) 為準：#2 驗證 Sites、#5 遷移後端、#13 資料庫遷移、#38 登入與內部授權、#21 店家邀請、#39 同步、#40 畫面沿用。
 
 - [開發指南](docs/development.md)：架構分層、Node／Sites 共用方式與常見修改步驟
+- [Git 流程](docs/git-flow.md)：分支命名、commit、PR 描述與合併方式
 - [來源基線與驗證紀錄](docs/baseline.md)
 - `development-spec.md`、`PLAN.md`、`docs/full-version-plan.md` 與 `lunch-town-handoff.html` 保留來源版本，作為歷史規格與視覺參考，其中舊架構或帳號方案不代表目前決策。
 - `assets/` 與 `web/art/` 保留視覺素材。使用者已於 2026-11-07 確認程式碼、素材及真實店家菜單可公開；目前未指定開源授權條款。

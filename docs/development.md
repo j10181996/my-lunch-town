@@ -2,7 +2,7 @@
 
 午餐小鎮的同一份訂餐領域邏輯要跑在兩種執行環境：本機開發用的 Node（Fastify、`node:sqlite`、Socket.IO），以及 Sites 部署用的 Cloudflare Worker（sql.js、D1、短輪詢）。這份文件說明程式怎麼分層、兩種環境如何共用程式碼，以及修改時哪些地方必須兩邊一起改。
 
-啟動、建置、部署指令與資料保存方式見 [README](../README.md)；這裡不重複。
+啟動、建置、部署指令與資料保存方式見 [README](../README.md)；分支、commit 與 PR 流程見 [Git 流程](git-flow.md)。這裡不重複。
 
 ## 目錄分層
 
