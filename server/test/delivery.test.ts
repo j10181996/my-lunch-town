@@ -141,7 +141,7 @@ it("舊 schema 增欄與種子回填只做一次，保留舊資料與既有訂�
       expect(store).toMatchObject(before.store);
       expect(JSON.parse(store.delivery_json as string)).toEqual(seeded.delivery);
       expect(db.prepare("SELECT * FROM rooms").get())
-        .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null });
+        .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null, deadline_at: null });
       expect(db.prepare("SELECT * FROM room_stores").get())
         .toEqual({ ...before.frozen, delivery_json: null, order_deadline_at: null });
       expect(db.prepare("SELECT * FROM store_orders").get())
