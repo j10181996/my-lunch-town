@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { servePageOrAsset } from "./assets";
 const assets = { async fetch(request: Request) {
   return new Response(request.method === "HEAD" ? null : "<html>Lunch Town</html>", {
-    status: new URL(request.url).pathname === "/index.html" ? 200 : 404,
+    status: new URL(request.url).pathname === "/" ? 200 : new URL(request.url).pathname === "/index.html" ? 307 : 404,
     headers: { "content-type": "text/html" },
   });
 } };
