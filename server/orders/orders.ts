@@ -6,7 +6,7 @@ import type { Ctx } from "../context";
 import { err, withWriteTx, type Db } from "../db";
 import { buildSnapshot, bumpRevision, getRoomRow, listMembers, loadCatalog, loadItems, requireMember } from "../rooms/rooms";
 import { paymentStatus } from "../rooms/payments";
-import { createStoreOrders } from "./storeOrders";
+import { closeInTx, deadlinePassed } from "../rooms/deadline";
 import { requestId as checkRequestId } from "../util";
 
 /**
@@ -33,7 +33,8 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
       return { ack: JSON.parse(prev.result_json) as OrderAck, fresh: false };
     }
 
-    if (room.status !== "open") throw err.closed();
+    // 以伺服器時間判斷截止：自動收單稍有延遲時，逾時的點餐仍一律拒絕。
+    if (room.status !== "open" || deadlinePassed(room)) throw err.closed();
     if (typeof input.mealId !== "string") throw err.invalid("缺少餐點");
     if (input.delta !== 1 && input.delta !== -1) throw err.invalid("數量變化只能是 +1 或 -1");
     const meal = db
@@ -86,18 +87,14 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
 export function closeRoom(ctx: Ctx, sessionId: string, roomId: string, rawRequestId: unknown): RoomSnapshot {
   const { db } = ctx;
   checkRequestId(rawRequestId);
-  let sentStoreIds: string[] = [];
-  const revision = withWriteTx(db, () => {
-    const { room, me } = requireMember(db, roomId, sessionId);
+  const result = withWriteTx(db, () => {
+    const { me } = requireMember(db, roomId, sessionId);
     if (me.role !== "owner") throw err.notAllowed("只有揪團者可以收單");
-    if (room.status === "closed") return null; // 已收單重試：回目前結果
-    db.prepare("UPDATE rooms SET status = 'closed', closed_at = ? WHERE id = ?").run(Date.now(), roomId);
-    sentStoreIds = createStoreOrders(db, roomId, me.nickname);
-    return bumpRevision(db, roomId);
+    return closeInTx(db, roomId); // 已收單（含自動收單）時回 null：重試回目前結果
   });
-  if (revision !== null) {
-    ctx.events.roomChanged(roomId, revision);
-    sentStoreIds.forEach((id) => ctx.events.storeOrdersChanged(id));
+  if (result) {
+    ctx.events.roomChanged(roomId, result.revision);
+    result.storeIds.forEach((id) => ctx.events.storeOrdersChanged(id));
   }
   return buildSnapshot(db, roomId, sessionId);
 }

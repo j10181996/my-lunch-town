@@ -356,6 +356,37 @@ input, select, textarea { font-size: 16px; }
 .store-picker { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
 .store-picker legend { font-weight: 700; padding: 0; margin-bottom: 6px; }
 
+/* #69: scale type to the actual panel, not the desktop viewport. */
+.side { container-type: inline-size; }
+.side .meal-name { font-size: clamp(1rem, 4.6cqi, 1.125rem); overflow-wrap: anywhere; }
+.side .section-title, .side .shop-head h2 { font-size: clamp(1.0625rem, 5.2cqi, 1.375rem); }
+.side .total-line { font-size: clamp(1rem, 4.6cqi, 1.125rem); flex-wrap: wrap; }
+.side .meal-row { grid-template-columns: clamp(48px, 18cqi, 96px) minmax(0, 1fr) auto; gap: clamp(5px, 2cqi, 10px); }
+.side .meal-row img { width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; }
+.side .price { font-size: clamp(1rem, 4.3cqi, 1.125rem); }
+.side .btn { white-space: normal; overflow-wrap: anywhere; }
+.side .qty-ctrl { flex-wrap: wrap; }
+@media (max-width: 900px) {
+  .topbar { gap: 6px 10px; padding: 6px 10px; flex-shrink: 0; font-size: clamp(.8125rem, 3.4vw, 1rem); }
+  .topbar .logo { font-size: clamp(1rem, 4.6vw, 1.375rem); gap: 5px; }
+  .topbar .logo img { width: clamp(24px, 7vw, 36px); height: auto; }
+  .topbar .title { font-size: clamp(.875rem, 3.7vw, 1.125rem); overflow-wrap: anywhere; min-width: 0; }
+  .topbar .btn { font-size: clamp(.8125rem, 3.4vw, 1rem); padding: 5px 9px; }
+  .stage .stage-action, .stage .friend-interact { font-size: clamp(.75rem, 3.1vw, .9375rem); line-height: 1.4; }
+  .mobile-panel-toggle { font-size: clamp(.8125rem, 3.4vw, .9375rem); }
+  .stage .touch-hint { font-size: clamp(.6875rem, 2.8vw, .8125rem); line-height: 1.4; }
+  .side .menu-head { grid-template-columns: minmax(0, 1fr); }
+  .side .menu-tools { justify-content: flex-start; flex-wrap: wrap; }
+  .side .menu-head .shop-head h2 { white-space: normal; overflow-wrap: anywhere; }
+}
+
+/* 截止時間（#15） */
+.deadline-tag { background: var(--warn-bg); color: #8a5a1a; font-variant-numeric: tabular-nums; }
+.deadline-tag.urgent { background: var(--accent); color: #fff; animation: deadline-pulse 1s steps(2) infinite; }
+.deadline-card.urgent { border-color: var(--accent); background: var(--err-bg); }
+@keyframes deadline-pulse { 50% { opacity: 0.65; } }
+@media (prefers-reduced-motion: reduce) { .deadline-tag.urgent { animation: none; } }
+
 /* 我的團（#17） */
 .my-room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .my-room { display: grid; gap: 6px; }
