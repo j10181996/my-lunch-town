@@ -77,6 +77,10 @@ export function Home() {
           <p className="muted" style={{ margin: 0 }}>
             開一團、把網址丟到群組，大家操控角色逛店、按 ＋1 點自己的餐，你直接看到彙總。
           </p>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <small className="muted">還沒決定吃什麼？散步模式可以先逛店看菜單，不用開團。</small>
+            <a className="btn green" {...link("/town")}>先進去逛逛 →</a>
+          </div>
           <label className="field">
             團名
             <input type="text" value={title} maxLength={20} onChange={(e) => setTitle(e.target.value)} required />
@@ -91,7 +95,7 @@ export function Home() {
             <TownMap town={town} marker={deliveryPoint} onPick={pickDelivery}
               renderLot={(lot) => lot.store ? <div>
                 <Storefront styleKey={lot.store.styleKey} resting={lot.store.status !== "open"} />
-                <div className="lot-label">{lot.store.name}</div>
+                <div className="lot-label">{lot.store.name}{lot.store.status === "open" ? "" : "（休息）"}</div>
               </div> : <div className="lot-label">空地</div>} />
             <small className="muted">{deliveryPoint ? "已選送餐地點，收單時依各店門檻決定外送或自取。" : "未選送餐地點，全部自取。"}</small>
             <button type="button" className="btn small" onClick={() => pickDelivery(null)}>
@@ -106,32 +110,6 @@ export function Home() {
             {openCount > 0 ? `小鎮目前有 ${openCount} 家店營業中，開團時會固定這一版菜單與價格。` : "小鎮目前沒有營業中的店，請等店家開門營業。"}
           </small>
         </form>
-
-        <section className="panel">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h2>小鎮街景</h2>
-            <a className="btn green" {...link("/town")}>不開團，先進去逛逛 →</a>
-          </div>
-          <small className="muted">散步模式只能逛店看菜單，想點餐再回來開團。</small>
-          <TownMap
-            town={town}
-            renderLot={(lot) =>
-              lot.store ? (
-                <div style={{ display: "grid", alignContent: "end" }}>
-                  <Storefront styleKey={lot.store.styleKey} resting={lot.store.status !== "open"} />
-                  <div className="lot-label">
-                    {lot.store.name}
-                    {lot.store.status === "open" ? "" : "（休息）"}
-                  </div>
-                </div>
-              ) : (
-                <div className="lot-label" style={{ alignSelf: "center", opacity: 0.8 }}>
-                  空地
-                </div>
-              )
-            }
-          />
-        </section>
       </main>
     </div>
   );
