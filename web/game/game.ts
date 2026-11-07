@@ -105,6 +105,30 @@ export class Game {
 
   /* ——— 外部設定 ——— */
 
+  private touchInput = { x: 0, y: 0 };
+
+  setTouchInput(x: number, y: number) {
+    if (!this.enabled || !Number.isFinite(x) || !Number.isFinite(y)) { this.touchInput = { x: 0, y: 0 }; return; }
+    const length = Math.max(1, Math.hypot(x, y));
+    this.touchInput = { x: x / length, y: y / length };
+  }
+
+  private resetInput() { this.keys.clear(); this.touchInput = { x: 0, y: 0 }; }
+
+  /** 點擊店內陳列台；以實際 canvas 尺寸還原世界座標，避開 DPR 與留白。 */
+  debugProducts() { return this.art?.products ?? []; }
+
+  productAt(clientX: number, clientY: number): string | null {
+    if (!this.enabled || this.sceneId === "street") return null;
+    const rect = this.display.getBoundingClientRect();
+    if (!rect.width || !rect.height || clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    const cam = this.camera();
+    const x = (clientX - rect.left) / rect.width * this.view.w + cam.x;
+    const y = (clientY - rect.top) / rect.height * this.view.h + cam.y;
+    return this.art?.products?.find((p) => x >= p.x - p.w / 2 && x < p.x + p.w / 2
+      && y >= p.y - 3 && y <= p.labelY + PRODUCT_PRICE_DY + 6)?.mealId ?? null;
+  }
+
   private cssW = 0;
   private cssH = 0;
 
@@ -168,7 +192,7 @@ export class Game {
 
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
-    if (!enabled) this.keys.clear();
+    if (!enabled) this.resetInput();
   }
 
   setPresence(players: PlayerPresence[]) {
@@ -228,7 +252,7 @@ export class Game {
     this.me = { x: EXIT.x, y: 192, dir: "up", moving: false, animT: 0 };
     this.exitArmed = true;
     this.fade = 1;
-    this.keys.clear();
+    this.resetInput();
     this.applySceneArt();
     this.applyView();
     this.setNearDoor(null);
@@ -246,7 +270,7 @@ export class Game {
     const w = this.world;
     this.me = { x: door.x * w.w, y: door.y * w.h + 6, dir: "down", moving: false, animT: 0 };
     this.fade = 1;
-    this.keys.clear();
+    this.resetInput();
     this.applySceneArt();
     this.applyView();
     this.setNearProduct(null);
@@ -295,7 +319,7 @@ export class Game {
     }
   };
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase());
-  private onBlur = () => this.keys.clear();
+  private onBlur = () => this.resetInput();
 
   private blocked(x: number, y: number): boolean {
     const fx = x - FOOT_W / 2;
@@ -321,8 +345,8 @@ export class Game {
   }
 
   private update(dt: number) {
-    let vx = 0;
-    let vy = 0;
+    let vx = this.touchInput.x;
+    let vy = this.touchInput.y;
     const k = this.keys;
     if (k.has("arrowleft") || k.has("a")) vx -= 1;
     if (k.has("arrowright") || k.has("d")) vx += 1;
@@ -332,7 +356,7 @@ export class Game {
     const wasMoving = me.moving;
     me.moving = vx !== 0 || vy !== 0;
     if (me.moving) {
-      const len = Math.hypot(vx, vy);
+      const len = Math.max(1, Math.hypot(vx, vy));
       const nx = me.x + (vx / len) * SPEED * dt;
       const ny = me.y + (vy / len) * SPEED * dt;
       if (!this.blocked(nx, me.y)) me.x = nx;
