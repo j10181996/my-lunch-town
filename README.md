@@ -1,30 +1,32 @@
-# 午餐小鎮團隊開發資料
+# My Lunch Town 午餐小鎮
 
-更新日期：2026 年 11 月 5 日。團隊預計於 **11 月 6 日星期五**統整各自的開發與發想；活動日為 **11 月 7 日星期六**。
+公司內部的多人點陣訂餐平台。團主分享團網址，團員操控角色逛店、加減餐點，團主彙總收單，店家在後台處理訂單。
 
-我們已決定開發一款多人點陣訂餐遊戲。揪團者分享網址，大家操控角色逛店、進店看點陣餐點與價格，按 ＋1 訂餐，最後由揪團者統計並向店家訂購。現在請各組員以同一份核心規格探索實作，明天帶回可展示的成果、取捨與新點子。
+目前保留 lunch-town 的 React、Vite、Fastify、Socket.IO 與 Node SQLite 開發模式，並已新增 Workers／D1 的 Sites 部署路徑。ChatGPT 登入、內部成員授權與店家邀請制仍由對應 issues 追蹤。
 
-## 先閱讀
+## 本機啟動
 
-1. 開啟 `lunch-town-handoff.html`：附圖的單檔閱讀版，不需安裝工具，也不需要網路即可閱讀內文與示意圖。
-2. 閱讀 [development-spec.md](development-spec.md)：產品與實作規格的主要來源。
-3. 以 [proposal-template.md](proposal-template.md) 記錄各自的成果與發想。
-4. 開發時使用 [contracts.ts](contracts.ts) 與 [menu.sample.json](menu.sample.json) 對齊命名、資料與介面。
+基線驗證使用 Node.js 26.0.0 與 npm，資料庫依賴 `node:sqlite`。在專案根目錄執行：
 
-## 文件定位
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+HOST=127.0.0.1 SEED_FILE=shared/catalog/seed.json DEMO_KEY= npm run dev
+```
 
-- **已定案**：多人共用網址、點陣角色逛店與進店、點陣餐點與價格、個人餐點加減、揪團者彙整。
-- **建議基準**：MVP 範圍、介面契約、同步規則與驗收方式，供組員先各自實作。
-- **明天統整**：技術選型、正式名稱、街區視角、素材製作方式、加分功能與整合負責人。
+前端預設為 `http://localhost:5173`，API 與 Socket.IO 為 `http://localhost:3000`。Vite 開發伺服器的 `host: true` 會對外監聽，本機執行不代表已具備內部平台的存取限制。
 
-技術建議不代表團隊已表決通過。可以用自己熟悉的工具探索，交回成果時請標明與契約的差異。這份資料包包含規格、範例資料與畫面參考，尚未包含遊戲程式或可部署成品。
+此命令使用虛構店家種子；只有空資料庫才會寫入種子，預設資料夾是 `data/`。如需隔離資料，可設定 `DATA_DIR` 指向另一個目錄，請勿刪除有價值的既有資料來切換種子。
 
-## 圖片與分享
+`DEMO_KEY=` 僅停用一次認領所有種子店家的展示入口；固定種子店家管理碼及匿名流程仍存在，須由 #8、#21、#38 處理，不能把目前版本當作可正式上線的授權系統。
 
-- [街區參考](assets/street-reference.png)：視覺參考，街區角度尚待統整。
-- [已確認的店內方向](assets/shop-interior-approved.png)：暖色點陣店內、角色與櫃檯、右側餐點和個人訂單。
-- `lunch-town-handoff.html` 已內嵌圖片，單獨傳送也可閱讀。
-- 若要連同可編輯資料一起傳送，分享專案 `output` 目錄的 ZIP 資料包。
+## Node 模式建置及執行
+
+```sh
+npm run build:node
+HOST=127.0.0.1 SEED_FILE=shared/catalog/seed.json DEMO_KEY= npm start
+```
+
+開啟 `http://localhost:3000`。這個模式由本機 Node 伺服器供應網頁、API 和 Socket.IO，並非 ChatGPT Sites 部署產物。
 
 ## Sites 完整功能部署
 
@@ -47,3 +49,29 @@ Sites 前端以短輪詢取代 Socket.IO：房間每次完成回應後約 250ms 
 工作階段使用 Secure、HttpOnly、SameSite=Lax Cookie。同一瀏覽器會沿用原有身分；跨瀏覽器須重新加入，店家可使用管理碼找回。`DEMO_KEY` 預設為 `demo`，空字串可停用展示用種子店認領；正式公開營運前請自行設定管理方式。收款功能維持原本的人工回報／確認，沒有串接或執行金流。
 
 新增 Site 預設為私人；部署不會自動開放任何持有網址者存取。
+
+## 測試
+
+```sh
+npm run typecheck
+npm test
+npm run build
+```
+
+既有測試位於 `server/test/`，涵蓋團單、計價、去重、收單、店家訂單、外送規則與人工收款狀態。
+
+`scripts/smoke.mjs` 是既有多瀏覽器流程測試，需要本機 Google Chrome。先以新的隔離資料目錄和 `shared/catalog/seed.json` 啟動建置版本，再執行：
+
+```sh
+node scripts/smoke.mjs http://localhost:3000 smoke-shots
+```
+
+測試會建立店家、團單及示範收款資料，請使用專用測試資料庫。CI 的瀏覽器與身分測試由 #7 後續調整。
+
+## 後續工作與來源
+
+目前決策與工作範圍以 [GitHub issues](https://github.com/j10181996/my-lunch-town/issues) 為準：#2 驗證 Sites、#5 遷移後端、#13 資料庫遷移、#38 登入與內部授權、#21 店家邀請、#39 同步、#40 畫面沿用。
+
+- [來源基線與驗證紀錄](docs/baseline.md)
+- `development-spec.md`、`PLAN.md`、`docs/full-version-plan.md` 與 `lunch-town-handoff.html` 保留來源版本，作為歷史規格與視覺參考，其中舊架構或帳號方案不代表目前決策。
+- `assets/` 與 `web/art/` 保留視覺素材。使用者已於 2026-11-07 確認程式碼、素材及真實店家菜單可公開；目前未指定開源授權條款。

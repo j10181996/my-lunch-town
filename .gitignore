@@ -7,3 +7,12 @@ smoke-shots
 .wrangler
 worker/seed.bin
 *.tar.gz
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
