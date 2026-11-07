@@ -227,3 +227,8 @@ label.field small { font-weight: 400; color: var(--sub); }
 .payment-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .payment-person { justify-content: space-between; margin: 8px 0; }
 .payment-send { white-space: normal; }
+
+.hours-settings fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.hours-day { border-top: 1px solid var(--ink); padding-top: 8px; }
+.hours-slot { align-items: end; }
+.hours-slot input { min-width: 100px; max-width: 150px; }

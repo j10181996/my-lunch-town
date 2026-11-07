@@ -1,3 +1,4 @@
+import { OrderDeadlineNotice } from "../ordering/OrderDeadlineNotice";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { MoveInput, RoomSnapshot, SceneId } from "../../shared/contracts";
 import { describeDelivery, fulfillmentOf } from "../../shared/delivery";
@@ -327,6 +328,7 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
               <small>{describeDelivery(result)}</small>
             </div>)}
           </div>
+          <OrderDeadlineNotice snap={snap} />
           {closeError && <div className="banner error">{closeError}</div>}
           <div className="row">
             <button className="btn primary delivery-close" disabled={closing} onClick={doClose}>

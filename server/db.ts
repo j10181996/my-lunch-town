@@ -1,3 +1,4 @@
+import { migrateStoreHours } from "./store-hours-schema";
 import { hashKey, withWriteTx } from "./db-shared";
 export { hashKey, withWriteTx, AppError, err } from "./db-shared";
 import { DatabaseSync } from "node:sqlite";
@@ -128,6 +129,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   migrateDelivery(db, seedFile);
   migratePayment(db);
   seedIfEmpty(db, seedFile);
+  migrateStoreHours(db);
   return db;
 }
 

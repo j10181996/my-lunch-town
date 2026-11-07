@@ -338,3 +338,9 @@ export interface OwnerSummary {
     totalTwd: number;
   };
 }
+
+/** Sunday=0. End before start means the next day; intervals are [open, close). */
+export interface StoreHours { weekly: Array<Array<{ open: string; close: string }>>; cutoff: string | null }
+export interface StoreProfile { hours?: StoreHours | null }
+export interface Store { orderDeadlineAt?: number | null }
+export interface StoreAdminGateway { setHours(storeId: Id, hours: StoreHours | null): Promise<StoreProfile> }

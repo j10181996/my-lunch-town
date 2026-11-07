@@ -75,6 +75,14 @@ await guest("POST", `${root}/payment/${joined.me.id}/confirm`, { confirmed: true
 await owner("POST", `${root}/payment/${joined.me.id}/confirm`, { confirmed: true });
 assert.equal((await guest("GET", root + "/snapshot")).myPayment.status, "confirmed");
 assert.equal((await owner("GET", root + "/summary")).paymentProgress.paidCount, 1);
+// The running Worker upgrades an existing persisted image and filters both stores and meals.
+await admin("PUT", `/api/stores/${meal.storeId}/hours`, { weekly: Array.from({ length: 7 }, () => []), cutoff: null });
+const next = await owner("POST", "/api/rooms", { title: "營業時間驗證", nickname: "團主", requestId: id() });
+assert(!next.snapshot.catalog.stores.some((s) => s.id === meal.storeId));
+assert(!next.snapshot.catalog.meals.some((m) => m.storeId === meal.storeId));
+assert.equal((await guest("GET", root + "/snapshot")).totalQuantity, 8);
+await guest("PUT", `/api/stores/${meal.storeId}/hours`, null, 403);
+await admin("PUT", `/api/stores/${meal.storeId}/hours`, null);
 await owner("POST", root + "/live", { ...ownerLive, leave: true });
 console.log("Sites integration passed: sessions, permissions, idempotency, 6 concurrent writes, presence, bubbles, close/export, store status, payment confirmation.");
 console.log(`Persistence fixture: ${root}`);

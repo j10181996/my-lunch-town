@@ -75,3 +75,11 @@ node scripts/smoke.mjs http://localhost:3000 smoke-shots
 - [來源基線與驗證紀錄](docs/baseline.md)
 - `development-spec.md`、`PLAN.md`、`docs/full-version-plan.md` 與 `lunch-town-handoff.html` 保留來源版本，作為歷史規格與視覺參考，其中舊架構或帳號方案不代表目前決策。
 - `assets/` 與 `web/art/` 保留視覺素材。使用者已於 2026-11-07 確認程式碼、素材及真實店家菜單可公開；目前未指定開源授權條款。
+
+### M3：營業時間與接單截止（#22）
+
+店家後台可啟用七天營業時段，每天最多三段；空白日為公休，結束早於開始表示跨午夜，區間為含開始、不含結束。時段以台灣 UTC+8 計算，不依賴伺服器或瀏覽器時區；跨日重疊會被拒絕。未設定時保留手動營業模式，手動休息優先於週時段。
+
+開團時伺服器排除非營業時段的店家及餐點，並固定當團的價格與截止時間。店家後續改時段不影響既有團。每日截止時間為選填；跨午夜營業時，早於開始時間的截止點屬於隔天。團主收單前，若有點餐店家已過截止時間，會顯示提醒；仍可確認送出，不自動取消訂單或拒絕收單。
+
+SQLite 領域 image 的相容升級在 `server/store-hours-schema.ts`，新增 nullable 的 `stores.hours_json` 與 `room_stores.order_deadline_at`，不重設舊資料。Node 啟動與 Worker 開啟 image 時共用這份冪等升級；Worker 的下一筆成功寫入會將升級後 image 與交易一起以 D1 revision 檢查提交。D1 envelope schema 不變。

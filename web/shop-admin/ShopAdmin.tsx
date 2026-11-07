@@ -1,3 +1,4 @@
+import { StoreHoursSettings } from "./StoreHoursSettings";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   DeliveryRules,
@@ -206,6 +207,8 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
             </div>
             {profile.isSample && <small className="muted">這是示範店家，管理碼為 demo-{profile.id}。</small>}
           </section>
+
+          <StoreHoursSettings key={`hours-${profile.id}`} profile={profile} onSaved={setProfile} />
 
           <section className="panel">
             <div className="row" style={{ justifyContent: "space-between" }}>

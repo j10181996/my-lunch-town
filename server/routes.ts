@@ -1,3 +1,4 @@
+import { setHours } from "./stores/stores";
 import type { FastifyInstance } from "fastify";
 import type { Ctx } from "./context";
 import { createRoom, buildSnapshot, getPublicInfo, joinRoom } from "./rooms/rooms";
@@ -55,6 +56,8 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   app.post<{ Params: P & { memberId: string } }>("/api/rooms/:id/payment/:memberId/confirm", async (req) =>
     confirmPayment(ctx, req.sid, req.params.id, req.params.memberId, req.body),
   );
+
+  app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/hours", async (req) => setHours(db, req.sid, req.params.storeId, req.body));
 
   // —— 店家 ——
   app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/delivery", async (req) =>
