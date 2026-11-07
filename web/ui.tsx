@@ -1,5 +1,7 @@
 import type { StoreOrderStatus } from "../shared/contracts";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AVATARS } from "../shared/town";
+import { avatarDataUrl } from "./art/characters";
 import { mealImageUrl } from "./art/meals";
 import { storefrontPreview } from "./art/scenes";
 import { link } from "./router";
@@ -89,4 +91,20 @@ export const orderStatusLabels: Record<StoreOrderStatus, string> = {
 };
 export function OrderStatusBadge({ status }: { status: StoreOrderStatus }) {
   return <span className={`order-status ${status}`}>{orderStatusLabels[status]}</span>;
+}
+
+export function AvatarPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const avatars = useMemo(() => AVATARS.map((a) => ({ ...a, src: avatarDataUrl(a.id) })), []);
+  return (
+    <div className="field">
+      選一個角色
+      <div className="avatar-pick" role="group" aria-label="角色">
+        {avatars.map((a) => (
+          <button type="button" key={a.id} aria-pressed={value === a.id} onClick={() => onChange(a.id)} aria-label={`${a.label}色角色`}>
+            <img className="pixel" src={a.src} alt="" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
