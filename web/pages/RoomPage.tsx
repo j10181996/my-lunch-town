@@ -10,7 +10,7 @@ import { roomGateway } from "../adapters/http";
 import { errorText, newRequestId } from "../api";
 import type { Game } from "../game/game";
 import { GameView } from "../game/GameView";
-import { deliveryForStore, GroupTotals, MenuPanel, MyOrder, PeopleDetail, RoomOrderStatus } from "../ordering/panels";
+import { deliveryForStore, GroupTotals, MenuPanel, MyOrder, OrderBar, PeopleDetail, RoomOrderStatus } from "../ordering/panels";
 import { PaymentCard, PaymentReminder, PaymentSettings } from "../ordering/payments";
 import { useRoom } from "../state/useRoom";
 import { AvatarPicker, CopyButton, Modal, TopBar, copyText, money } from "../ui";
@@ -205,7 +205,7 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
     return { store, result: deliveryForStore(snap, store) };
   });
   const hasDeliveryWarnings = deliveryPlans.some(({ result }) => result.kind !== "ok" && result.kind !== "no-point");
-  const ownerCloseButton = isOwner && <div className="side-footer">{
+  const ownerCloseAction = isOwner && (
     closed ? (
       <button className="btn primary big" onClick={openExport}>
         查看並複製訂購明細
@@ -214,7 +214,8 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
       <button className="btn primary big" disabled={conn !== "online" || snap.totalQuantity === 0} onClick={() => setConfirmClose(true)}>
         收單並複製明細
       </button>
-    )}</div>;
+    ));
+  const ownerCloseButton = ownerCloseAction && <div className="side-footer">{ownerCloseAction}</div>;
 
   return (
     <div className="room">
@@ -270,8 +271,13 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
           {store ? (
             <>
               <MenuPanel {...ordering} store={store} focusMealId={nearMealId} />
-              <MyOrder {...ordering} />
-              {ownerCloseButton}
+              <div id="my-order-detail" className="scroll-target"><MyOrder {...ordering} /></div>
+              {/* 底部固定：訂單合計與預算，團主的收單按鈕也在這裡。 */}
+              <div className="side-footer store-footer">
+                <OrderBar snap={snap} onShow={() =>
+                  document.getElementById("my-order-detail")?.scrollIntoView({ block: "start", behavior: "smooth" })} />
+                {ownerCloseAction}
+              </div>
             </>
           ) : (
             <>

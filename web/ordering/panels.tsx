@@ -44,18 +44,31 @@ export function MenuPanel({
   const meals = storeMeals.filter((m) => qtyOf(snap, m.id) > 0 || matchesDietFilters(m.tags, prefs.filters));
   const hidden = storeMeals.length - meals.length;
   const budget = budgetStatus(snap.myTotalTwd, prefs.budgetTwd);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterId = `diet-filter-${store.id}`;
   return (
-    <section className="stack" aria-label={`${store.name} 菜單`}>
-      <div className="shop-head">
-        <StoreIcon store={store} />
-        <div>
-          <h2>{store.name}</h2>
-          <DeliveryStatus snap={snap} store={store} />
-          <div className="muted">選好餐點，按 ＋1 加入訂單</div>
+    <section className="stack menu-panel" aria-label={`${store.name} 菜單`}>
+      {/* 頂部固定：菜單再長也看得到店名、外送、篩選入口與預算。 */}
+      <div className="menu-head">
+        <div className="shop-head">
+          <StoreIcon store={store} />
+          <div>
+            <h2>{store.name}</h2>
+            <DeliveryStatus snap={snap} store={store} />
+          </div>
         </div>
+        <div className="menu-tools">
+          <button type="button" className={`btn small${prefs.filters.length > 0 ? " green" : ""}`}
+            aria-expanded={filtersOpen} aria-controls={filterId} onClick={() => setFiltersOpen((o) => !o)}>
+            篩選{prefs.filters.length > 0 ? `（已選 ${prefs.filters.length} 項）` : ""} {filtersOpen ? "▴" : "▾"}
+          </button>
+          {budget && <span className={`budget-chip${budget.over ? " over" : ""}`} role="status">
+            {budget.over ? `超出預算 ${money(-budget.remainingTwd)}` : `預算剩 ${money(budget.remainingTwd)}`}
+          </span>}
+        </div>
+        {filtersOpen && <DietFilterBar id={filterId} />}
       </div>
-      <DietFilterBar />
-      {budget && <BudgetBanner budget={budget} />}
+      <div className="muted">選好餐點，按 ＋1 加入訂單</div>
       <div className="menu">
         {meals.map((m) => (
           <MealRow key={m.id} focused={m.id === focusMealId} meal={m} qty={qtyOf(snap, m.id)} pending={pending[m.id]} canEdit={canEdit} change={change}
@@ -73,10 +86,10 @@ export function MenuPanel({
 }
 
 /** 飲食篩選：依店家標示，過敏者仍須向店家確認。 */
-function DietFilterBar() {
+function DietFilterBar({ id }: { id?: string }) {
   const prefs = useOrderPrefs();
   return (
-    <fieldset className="diet-filter">
+    <fieldset className="diet-filter" id={id}>
       <legend>飲食篩選</legend>
       <div className="chips">
         {DIET_FILTERS.map((f) => (
@@ -179,6 +192,20 @@ function MealRow({
         )}
       </div>
     </div>
+  );
+}
+
+/** 店內底部固定的訂單列：份數、金額與預算，點擊捲到訂單明細。 */
+export function OrderBar({ snap, onShow }: { snap: RoomSnapshot; onShow(): void }) {
+  const prefs = useOrderPrefs();
+  const budget = budgetStatus(snap.myTotalTwd, prefs.budgetTwd);
+  return (
+    <button type="button" className={`order-bar${budget?.over ? " over" : ""}`} onClick={onShow}>
+      <span>我的訂單 {snap.myTotalQuantity} 份</span>
+      <strong>{money(snap.myTotalTwd)}</strong>
+      {budget && <span>{budget.over ? `超出 ${money(-budget.remainingTwd)}` : `預算剩 ${money(budget.remainingTwd)}`}</span>}
+      <span className="order-bar-go" aria-hidden="true">明細 ▾</span>
+    </button>
   );
 }
 
