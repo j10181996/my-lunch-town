@@ -64,6 +64,8 @@ export function changeQuantity(ctx: Ctx, sessionId: string, roomId: string, inpu
         input.mealId,
       );
     }
+    // 改餐後需要重新確認；相同 requestId 的重試已在上方返回。
+    db.prepare("DELETE FROM member_ready WHERE member_id = ?").run(me.id);
     const revision = bumpRevision(db, roomId);
     const myTotalTwd = sumItems(loadItems(db, roomId, me.id)).totalTwd;
     const result: OrderAck = { requestId: reqId, mealId: input.mealId, quantity: after, myTotalTwd, revision };
