@@ -7,7 +7,7 @@ const assets = { async fetch(request: Request) {
   });
 } };
 describe("Sites direct page navigation without SPA asset fallback", () => {
-  for (const path of ["/", "/management/stores", "/shop", "/shop/", "/r/hgafccbf", "/r/hgafccbf/", "/r/hgafccbf?view=side", "/shop/new", "/shop/store-1"]) {
+  for (const path of ["/", "/management/stores", "/shop", "/shop/", "/r/hgafccbf", "/r/hgafccbf/", "/r/hgafccbf?view=side", "/shop/new", "/shop/store-1", "/town", "/town/"]) {
     it(`loads ${path}`, async () => {
       const response = await servePageOrAsset(new Request(`https://town.test${path}`), assets);
       expect(response.status).toBe(200);
@@ -15,7 +15,7 @@ describe("Sites direct page navigation without SPA asset fallback", () => {
     });
   }
   it("preserves missing assets and unknown paths as 404", async () => {
-    for (const path of ["/assets/missing.js", "/unknown", "/r/room/bad"]) {
+    for (const path of ["/assets/missing.js", "/unknown", "/r/room/bad", "/town/x"]) {
       expect((await servePageOrAsset(new Request(`https://town.test${path}`), assets)).status).toBe(404);
     }
   });

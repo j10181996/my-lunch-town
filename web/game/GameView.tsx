@@ -15,6 +15,8 @@ interface Props {
   /** 目前能否點餐（未收單、已連線、無待確認）；只影響提示文字，實際阻擋在 change()。 */
   canOrder: boolean;
   controlsEnabled?: boolean;
+  /** 散步模式（#44）：單人唯讀，不訂閱泡泡、不顯示表情與同伴；商品動作改為「用這家開團」。 */
+  solo?: boolean;
   onPickProduct(mealId: string): void;
   onNearProduct(mealId: string | null): void;
   onReady(game: Game): void;
@@ -22,7 +24,7 @@ interface Props {
   onMove(input: MoveInput): void;
 }
 
-export function GameView({ snap, presence, online, canOrder, controlsEnabled = true, onPickProduct, onNearProduct, onReady, onSceneChange, onMove }: Props) {
+export function GameView({ snap, presence, online, canOrder, controlsEnabled = true, solo = false, onPickProduct, onNearProduct, onReady, onSceneChange, onMove }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
@@ -117,7 +119,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
       game.resize(el.clientWidth, el.clientHeight);
     });
     ro.observe(wrapRef.current!);
-    const offBubble = roomGateway.onBubble((b) => game.showBubble(b.memberId, b.text));
+    const offBubble = solo ? () => {} : roomGateway.onBubble((b) => game.showBubble(b.memberId, b.text));
     return () => {
       clearTimeout(noticeTimer.current); clearTimeout(emoteTimer.current);
       ro.disconnect();
@@ -163,11 +165,11 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
   return (
     <div className="stage" ref={wrapRef}>
       <VirtualJoystick disabled={!controlsEnabled} scene={scene} onMove={(x, y) => gameRef.current?.setTouchInput(x, y)} />
-      <div className="touch-hint">{inShop ? "點餐點圖案 ＋1，也可展開菜單" : "拖動搖桿逛街，或在面板選店家"}</div>
+      <div className="touch-hint">{inShop ? (solo ? "逛逛陳列台，喜歡就用這家開團" : "點餐點圖案 ＋1，也可展開菜單") : "拖動搖桿逛街，或在面板選店家"}</div>
       <canvas ref={canvasRef} className="pixel" aria-label="午餐小鎮街景，用方向鍵或 WASD 移動角色" />
       <div className="town-controls">
         <div className="emote-bar" role="group" aria-label="小鎮表情">
-          {EMOTES.map((emote) => <button key={emote.id} className="emote-btn" title={emote.label}
+          {!solo && EMOTES.map((emote) => <button key={emote.id} className="emote-btn" title={emote.label}
             aria-label={emote.label} disabled={!online || !social || emoteBusy || socialBusy} onClick={() => void sendEmote(emote.id)}>{emote.icon}</button>)}
           <button className="emote-btn bag-toggle" aria-label="背包與小鎮設定" aria-expanded={bagOpen} onClick={() => setBagOpen(!bagOpen)}>🎒</button>
         </div>
@@ -180,12 +182,12 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           <strong>小鎮成就 {collection.achievements.length} / {ACHIEVEMENTS.length}</strong>
           <div className="achievement-list">{ACHIEVEMENTS.map((a) => <div key={a.id} className={collection.achievements.includes(a.id) ? "unlocked" : "locked"} title={a.description}>{a.icon} {a.name}<span>{collection.achievements.includes(a.id) ? "✓" : a.description}</span></div>)}</div>
           <label><input type="checkbox" checked={lifeEnabled} onChange={(e) => setLifeEnabled(e.target.checked)} /> 顯示村民與小動物</label>
-          <label><input type="checkbox" checked={social} disabled={!online || socialBusy} onChange={() => void toggleSocial()} /> 社交表情與點餐泡泡</label>
+          {!solo && <label><input type="checkbox" checked={social} disabled={!online || socialBusy} onChange={() => void toggleSocial()} /> 社交表情與點餐泡泡</label>}
           <label><input type="checkbox" checked={collection.badge} onChange={(e) => updateCollection({ ...collectionRef.current, badge: e.target.checked })} /> 顯示成就徽章</label>
         </section>}
       </div>
       {notice && <div className="town-notice" role="status">{notice}</div>}
-      {inShop && social && <div className="shop-company" aria-live="polite">{(() => {
+      {inShop && social && !solo && <div className="shop-company" aria-live="polite">{(() => {
         const ids = new Set(presence.players.filter((p) => p.sceneId === scene && p.memberId !== snap.me.id).map((p) => p.memberId));
         const names = snap.members.filter((m) => ids.has(m.id)).map((m) => m.nickname);
         return names.length ? `一起逛店：${names.join("、")}` : "還沒有人進來，一起揪朋友吧！";
@@ -206,7 +208,12 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           <span className="keyboard-label">往門裡走或按 E </span><span className="touch-label">點一下</span>進入「{nearDoor.name}」
         </button>
       ) : null}
-      {nearMeal && (
+      {nearMeal && solo && (
+        <button className="btn primary stage-action" onClick={() => onPickProduct(nearMeal.id)}>
+          <span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>喜歡「{nearMeal.name}」NT${nearMeal.priceTwd}？用這家開團
+        </button>
+      )}
+      {nearMeal && !solo && (
         <button
           className="btn primary stage-action"
           disabled={!canOrder}
@@ -215,7 +222,7 @@ export function GameView({ snap, presence, online, canOrder, controlsEnabled = t
           {canOrder ? <><span className="keyboard-label">按 Enter </span><span className="touch-label">點一下</span>加一份「{nearMeal.name}」NT${nearMeal.priceTwd}</> : `「${nearMeal.name}」目前不能點餐`}
         </button>
       )}
-      <div className="hint">{inShop ? "走到陳列台的商品前按 Enter 加一份・踩出口地墊或按 Esc 回街上" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
+      <div className="hint">{inShop ? solo ? "散步模式只能逛，走到商品前按 Enter 用這家開團・踩出口地墊或按 Esc 回街上" : "走到陳列台的商品前按 Enter 加一份・踩出口地墊或按 Esc 回街上" : solo ? "方向鍵／WASD 移動・Enter 摸摸動物・走進店門看菜單" : "方向鍵／WASD 移動・Enter 摸摸動物・右上角可以揮手"}</div>
     </div>
   );
 }

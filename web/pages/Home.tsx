@@ -23,7 +23,16 @@ export function Home() {
   }
   const [title, setTitle] = useState("今天午餐團");
   const [nickname, setNickname] = useState(() => localStorageGet("lt-nickname"));
-  const [avatar, setAvatar] = useState(AVATAR_IDS[0]);
+  const [avatar, setAvatarState] = useState(() => {
+    const saved = localStorageGet("lt-avatar");
+    return AVATAR_IDS.includes(saved) ? saved : AVATAR_IDS[0];
+  });
+  function setAvatar(id: string) {
+    setAvatarState(id);
+    localStorageSet("lt-avatar", id); // 散步模式沿用同一個角色
+  }
+  // 從散步模式的「用這家開團」回來時帶 ?from=店家 ID
+  const [fromStoreId] = useState(() => new URLSearchParams(location.search).get("from"));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [requestId] = useState(newRequestId); // 開團重試沿用同一個 ID
@@ -34,6 +43,7 @@ export function Home() {
   }, []);
 
   const openCount = town.filter((l) => l.store?.status === "open").length;
+  const fromStore = fromStoreId ? town.find((l) => l.store?.id === fromStoreId)?.store : undefined;
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -57,8 +67,13 @@ export function Home() {
         <a className="btn" {...link("/shop")}>店家入口</a>
       </TopBar>
       <main className="page-body">
-        <form className="panel" onSubmit={create}>
+        <form className="panel" id="create-room" onSubmit={create}>
           <h2>我要揪團</h2>
+          {fromStore && <div className="banner ok" role="status">
+            {fromStore.status === "open"
+              ? `剛逛完「${fromStore.name}」，開團後大家就能點這家。`
+              : `「${fromStore.name}」目前休息中，這次開團不會包含它。`}
+          </div>}
           <p className="muted" style={{ margin: 0 }}>
             開一團、把網址丟到群組，大家操控角色逛店、按 ＋1 點自己的餐，你直接看到彙總。
           </p>
@@ -93,7 +108,11 @@ export function Home() {
         </form>
 
         <section className="panel">
-          <h2>小鎮街景</h2>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <h2>小鎮街景</h2>
+            <a className="btn green" {...link("/town")}>不開團，先進去逛逛 →</a>
+          </div>
+          <small className="muted">散步模式只能逛店看菜單，想點餐再回來開團。</small>
           <TownMap
             town={town}
             renderLot={(lot) =>

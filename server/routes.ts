@@ -1,4 +1,5 @@
 import { listManagementStores } from "./stores/store-list";
+import { getTownCatalog } from "./stores/town-catalog";
 import { setHours } from "./stores/stores";
 import { sendEmote, setSocial } from "./rooms/social";
 import type { FastifyInstance } from "fastify";
@@ -79,6 +80,7 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
       updateStoreOrderStatus(ctx, req.sid, req.params.storeId, req.params.orderId, req.body as never),
   );
   app.get("/api/town", async () => getTown(db));
+  app.get("/api/town/catalog", async () => getTownCatalog(db));
   app.get("/api/my/stores", async (req) => myStores(db, req.sid));
   app.post("/api/stores", async (req) => createStore(db, req.sid, req.body as never));
   app.post("/api/stores/claim", async (req) =>
