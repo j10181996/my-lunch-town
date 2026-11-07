@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
 import type { RoomSnapshot } from "../../shared/contracts";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app";
@@ -8,11 +9,13 @@ import { createRoom } from "../rooms/rooms";
 import { changeQuantity, closeRoom } from "../orders/orders";
 import { SAMPLE_SEED, TAICHUNG_SEED, openDb } from "../db";
 import { noopEvents, type Ctx } from "../context";
+import { SAMPLE_STORE_IDS } from "./fixtures";
 
 let app: FastifyInstance;
 let changes: Array<{ roomId: string; revision: number }>;
 let storeChanges: string[];
 let n = 0;
+const TAICHUNG_STORE_IDS = (JSON.parse(readFileSync(TAICHUNG_SEED, "utf8")) as { stores: Array<{ id: string }> }).stores.map((s) => s.id);
 const rid = () => `req-${Date.now()}-${n++}-xxxx`;
 
 beforeEach(async () => {
@@ -48,9 +51,9 @@ function client() {
   };
 }
 
-async function openRoom(title = "今天午餐團", nickname = "阿凱") {
+async function openRoom(title = "今天午餐團", nickname = "阿凱", storeIds: string[] = SAMPLE_STORE_IDS) {
   const owner = client();
-  const r = await owner.post("/api/rooms", { title, nickname, requestId: rid() });
+  const r = await owner.post("/api/rooms", { title, nickname, requestId: rid(), storeIds });
   expect(r.status).toBe(200);
   return { owner, roomId: r.body.snapshot.room.id as string, created: r.body };
 }
@@ -81,16 +84,16 @@ describe("開團與加入", () => {
 
   it("開團重試同 requestId 不重複開團", async () => {
     const c = client();
-    const body = { title: "午餐", nickname: "阿凱", requestId: rid() };
+    const body = { title: "午餐", nickname: "阿凱", requestId: rid(), storeIds: SAMPLE_STORE_IDS };
     const a = await c.post("/api/rooms", body);
     const b = await c.post("/api/rooms", body);
     expect(b.body.snapshot.room.id).toBe(a.body.snapshot.room.id);
   });
 
   it("團長開團時可選角色；未選或無效時用預設角色", async () => {
-    const pick = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", avatarId: "avatar-green", requestId: rid() });
+    const pick = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", avatarId: "avatar-green", requestId: rid(), storeIds: SAMPLE_STORE_IDS });
     expect(pick.body.snapshot.members[0].avatarId).toBe("avatar-green");
-    const bad = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", avatarId: "nope", requestId: rid() });
+    const bad = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", avatarId: "nope", requestId: rid(), storeIds: SAMPLE_STORE_IDS });
     expect(bad.body.snapshot.members[0].avatarId).toBe("avatar-blue");
     const { created } = await openRoom();
     expect(created.snapshot.members[0].avatarId).toBe("avatar-blue");
@@ -252,7 +255,7 @@ describe("店家端", () => {
     });
     expect(add.body.meals).toHaveLength(1);
     expect((await c.post(`/api/stores/${storeId}/status`, { status: "open" })).body.status).toBe("open");
-    const { created } = await openRoom();
+    const { created } = await openRoom("今天午餐團", "阿凱", [...SAMPLE_STORE_IDS, storeId]);
     const store = created.snapshot.catalog.stores.find((s: { id: string }) => s.id === storeId);
     expect(store).toMatchObject({ name: "咖哩小屋", styleKey: "curry", lotIndex: 3 });
     expect(created.snapshot.catalog.meals.some((m: { name: string }) => m.name === "咖哩飯")).toBe(true);
@@ -271,7 +274,7 @@ describe("店家端", () => {
     const meal = add.body.meals.find((m: { name: string }) => m.name === "素咖哩");
     expect(meal.tags).toEqual(["素食", "全素", "含堅果", "招牌", "小辣", "限量", "新品", "外帶"]);
     await c.post(`/api/stores/${storeId}/status`, { status: "open" });
-    const { created } = await openRoom();
+    const { created } = await openRoom("今天午餐團", "阿凱", [storeId]);
     expect(created.snapshot.catalog.meals.find((m: { id: string }) => m.id === meal.id).tags).toEqual(meal.tags);
   });
 
@@ -303,7 +306,9 @@ describe("店家端", () => {
     expect(midMeals).toContain("meal-tree-sesame");
 
     await shop.post(`/api/stores/store-tree/status`, { status: "resting" });
-    const late = await openRoom("晚");
+    expect(await client().post("/api/rooms", { title: "晚", nickname: "阿凱", requestId: rid(), storeIds: SAMPLE_STORE_IDS }))
+      .toMatchObject({ status: 400, body: { message: "「大樹麵店」目前沒有營業，請重新選擇店家" } });
+    const late = await openRoom("晚", "阿凱", ["store-af", "store-green"]);
     expect(late.created.snapshot.catalog.stores.map((s: { id: string }) => s.id)).not.toContain("store-tree");
 
     expect((await plus(old.owner, old.roomId, "meal-tree-soup")).status).toBe(200);
@@ -352,8 +357,52 @@ describe("店家端", () => {
       await shop.post("/api/stores/claim", { manageKey: `demo-store-${s}` });
       await shop.post(`/api/stores/store-${s}/status`, { status: "resting" });
     }
-    const r = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", requestId: rid() });
+    const r = await client().post("/api/rooms", { title: "午餐", nickname: "阿凱", requestId: rid(), storeIds: SAMPLE_STORE_IDS });
     expect(r.status).toBe(400);
+  });
+});
+
+describe("開團指定店家", () => {
+  it("只凍結選到的店與其餐點，地圖、彙總只有這些店", async () => {
+    const owner = client();
+    const r = await owner.post("/api/rooms", { title: "大樹團", nickname: "阿凱", requestId: rid(), storeIds: ["store-tree"] });
+    expect(r.status).toBe(200);
+    const snap = r.body.snapshot;
+    expect(snap.catalog.stores.map((s: { id: string }) => s.id)).toEqual(["store-tree"]);
+    expect(snap.catalog.meals.length).toBeGreaterThan(0);
+    expect(snap.catalog.meals.every((m: { storeId: string }) => m.storeId === "store-tree")).toBe(true);
+    expect((await plus(owner, snap.room.id, "meal-af-chicken")).status).toBe(404);
+    expect((await plus(owner, snap.room.id, "meal-tree-dry")).status).toBe(200);
+  });
+
+  it("沒選、空陣列、不存在、格式錯誤或休息中的店都拒絕，且不建立團", async () => {
+    const shop = client();
+    await shop.post("/api/stores/claim", { manageKey: "demo-store-green" });
+    await shop.post("/api/stores/store-green/status", { status: "resting" });
+    const c = client();
+    const cases: Array<[unknown, string]> = [
+      [undefined, "請先選擇要揪的店家"],
+      [[], "請至少選一家店"],
+      ["store-af", "請至少選一家店"],
+      [["store-af", 3], "店家格式錯誤"],
+      [["store-af", "store-nope"], "找不到選擇的店家"],
+      [["store-af", "store-green"], "「綠芽素食」目前沒有營業"],
+    ];
+    for (const [storeIds, message] of cases) {
+      const res = await c.post("/api/rooms", { title: "午餐", nickname: "阿凱", requestId: rid(), storeIds });
+      expect(res).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+      expect(res.body.message).toContain(message);
+    }
+  });
+
+  it("店家納入去重：重複與順序不影響，同 requestId 換店家視為衝突", async () => {
+    const c = client();
+    const body = { title: "午餐", nickname: "阿凱", requestId: rid(), storeIds: ["store-tree", "store-af", "store-af"] };
+    const first = await c.post("/api/rooms", body);
+    expect(first.body.snapshot.catalog.stores.map((s: { id: string }) => s.id)).toEqual(["store-af", "store-tree"]);
+    expect((await c.post("/api/rooms", { ...body, storeIds: ["store-af", "store-tree"] })).body).toEqual(first.body);
+    expect(await c.post("/api/rooms", { ...body, storeIds: ["store-af"] }))
+      .toMatchObject({ status: 409, body: { code: "REQUEST_ID_CONFLICT" } });
   });
 });
 
@@ -367,7 +416,7 @@ describe("台中店家種子資料", () => {
     const res = await local.inject({
       method: "POST",
       url: "/api/rooms",
-      payload: { title: "午餐", nickname: "阿凱", requestId: "req-taichung-seed-1" },
+      payload: { title: "午餐", nickname: "阿凱", requestId: "req-taichung-seed-1", storeIds: TAICHUNG_STORE_IDS },
     });
     expect(res.statusCode).toBe(200);
     const { catalog } = res.json().snapshot;
@@ -540,7 +589,7 @@ it("送單失敗回滾整筆收單，成功通知時已可讀取提交後資料"
     bubble() {},
   } };
   try {
-    const { snapshot } = createRoom(ctx, "test-session", { title: "原子送單", nickname: "阿凱", requestId: rid() });
+    const { snapshot } = createRoom(ctx, "test-session", { title: "原子送單", nickname: "阿凱", requestId: rid(), storeIds: SAMPLE_STORE_IDS });
     const roomId = snapshot.room.id;
     changeQuantity(ctx, "test-session", roomId, { mealId: "meal-af-chicken", delta: 1, requestId: rid() });
     changeQuantity(ctx, "test-session", roomId, { mealId: "meal-tree-dry", delta: 1, requestId: rid() });
@@ -590,7 +639,7 @@ describe("外送設定、凍結與收單", () => {
     }
     const owner = client();
     const created = await owner.post("/api/rooms", {
-      title: "外送測試", nickname: "阿凱", requestId: rid(), deliveryPoint: point,
+      title: "外送測試", nickname: "阿凱", requestId: rid(), deliveryPoint: point, storeIds: SAMPLE_STORE_IDS,
     });
     const snap = created.body.snapshot;
     const roomId = snap.room.id;
@@ -634,7 +683,7 @@ describe("外送設定、凍結與收單", () => {
     await shop.put("/api/stores/store-af/delivery", { enabled: true, tiers: [{ maxKm: 0.1, minTwd: 0 }] });
     const owner = client();
     const { snapshot } = (await owner.post("/api/rooms", {
-      title: "太遠", nickname: "阿凱", requestId: rid(), deliveryPoint: { x: 0, y: 0 },
+      title: "太遠", nickname: "阿凱", requestId: rid(), deliveryPoint: { x: 0, y: 0 }, storeIds: SAMPLE_STORE_IDS,
     })).body;
     await plus(owner, snapshot.room.id, "meal-af-chicken");
     await plus(owner, snapshot.room.id, "meal-tree-dry");
@@ -645,9 +694,9 @@ describe("外送設定、凍結與收單", () => {
     ]);
   });
 
-  it("開團去重包含地點，非法座標拒絕，舊版無地點 digest 仍能重試", async () => {
+  it("開團去重包含地點，非法座標拒絕", async () => {
     const owner = client();
-    const body = { title: "午餐", nickname: "阿凱", requestId: rid(), deliveryPoint: point };
+    const body = { title: "午餐", nickname: "阿凱", requestId: rid(), deliveryPoint: point, storeIds: SAMPLE_STORE_IDS };
     const first = await owner.post("/api/rooms", body);
     expect((await owner.post("/api/rooms", body)).body).toEqual(first.body);
     expect(await owner.post("/api/rooms", { ...body, deliveryPoint: { x: 0, y: 0 } }))
@@ -658,9 +707,6 @@ describe("外送設定、凍結與收單", () => {
       expect(await owner.post("/api/rooms", { ...body, requestId: rid(), deliveryPoint }))
         .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
     }
-    const legacy = { title: "升級前", nickname: "阿凱", requestId: rid() };
-    const before = await owner.post("/api/rooms", legacy);
-    expect((await owner.post("/api/rooms", legacy)).body).toEqual(before.body);
   });
 });
 

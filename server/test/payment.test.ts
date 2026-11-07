@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { validatePaymentInfo } from "../../shared/payment";
 import { paymentQrPayload, twqrTransferPayload } from "../../shared/payment-qr";
 import { openDb } from "../db";
+import { SAMPLE_STORE_IDS } from "./fixtures";
 
 const bank = { type: "bank", bankCode: "812", account: "1234-5678-9012", holder: "王阿凱" };
 const valid = [bank, { type: "linepay", id: "kai" }, { type: "jkopay", id: "kai" },
@@ -133,7 +134,7 @@ it("付款變更與 revision 原子提交、提交後通知，重試與取消保
   };
   const requestId = "payment-atomic-request";
   try {
-    const roomId = createRoom(ctx, "owner", { title: "收款", nickname: "阿凱", requestId }).snapshot.room.id;
+    const roomId = createRoom(ctx, "owner", { title: "收款", nickname: "阿凱", requestId, storeIds: SAMPLE_STORE_IDS }).snapshot.room.id;
     const memberId = joinRoom(ctx, "rain", roomId, { nickname: "小雨", avatarId: "avatar-pink" }).me.id;
     changeQuantity(ctx, "rain", roomId, { mealId: "meal-af-chicken", delta: 1, requestId });
     closeRoom(ctx, "owner", roomId, requestId);
@@ -179,7 +180,7 @@ it("付款提醒只送給未付款的團員，限團主、收單並傳送後，�
   };
   const requestId = "payment-remind-request";
   try {
-    const roomId = createRoom(ctx, "owner", { title: "提醒", nickname: "阿凱", requestId }).snapshot.room.id;
+    const roomId = createRoom(ctx, "owner", { title: "提醒", nickname: "阿凱", requestId, storeIds: SAMPLE_STORE_IDS }).snapshot.room.id;
     joinRoom(ctx, "rain", roomId, { nickname: "小雨", avatarId: "avatar-pink" });
     joinRoom(ctx, "sun", roomId, { nickname: "小陽", avatarId: "avatar-pink" });
     joinRoom(ctx, "idle", roomId, { nickname: "沒點", avatarId: "avatar-pink" });

@@ -92,6 +92,7 @@ export interface CreateRoomInput {
   nickname: string;
   requestId: string; // 同一工作階段的開團重試使用相同 ID
   avatarId?: string; // 團長角色；省略或無效時用預設角色
+  storeIds?: Id[]; // 本團的店家，至少一家；型別保留選填只為了相容升級前的重試請求
 }
 export interface JoinInput { nickname: string; avatarId: string }
 export interface OrderDeltaInput {

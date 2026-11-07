@@ -17,7 +17,9 @@ function client() {
   };
 }
 const owner = client(), guest = client(), stranger = client(), admin = client();
-const input = { title: "Sites 整合驗證", nickname: "團主", avatarId: "avatar-green", requestId: id() };
+const openStoreIds = async () => (await owner("GET", "/api/town")).flatMap((lot) => (lot.store?.status === "open" ? [lot.store.id] : []));
+await owner("POST", "/api/rooms", { title: "未選店家", nickname: "團主", requestId: id() }, 400);
+const input = { title: "Sites 整合驗證", nickname: "團主", avatarId: "avatar-green", requestId: id(), storeIds: await openStoreIds() };
 const created = await owner("POST", "/api/rooms", input);
 assert.equal(created.snapshot.me.avatarId, "avatar-green", "owner avatar survives integration");
 assert.equal(created.snapshot.socialEnabled, true);
@@ -102,12 +104,13 @@ assert.equal((await guest("GET", root + "/snapshot")).myPayment.status, "confirm
 assert.equal((await owner("GET", root + "/summary")).paymentProgress.paidCount, 1);
 // The running Worker upgrades an existing persisted image and filters both stores and meals.
 await admin("PUT", `/api/stores/${meal.storeId}/hours`, { weekly: Array.from({ length: 7 }, () => []), cutoff: null });
-const next = await owner("POST", "/api/rooms", { title: "營業時間驗證", nickname: "團主", requestId: id() });
+await owner("POST", "/api/rooms", { title: "營業時間驗證", nickname: "團主", requestId: id(), storeIds: [meal.storeId] }, 400);
+const next = await owner("POST", "/api/rooms", { title: "營業時間驗證", nickname: "團主", requestId: id(), storeIds: await openStoreIds() });
 assert(!next.snapshot.catalog.stores.some((s) => s.id === meal.storeId));
 assert(!next.snapshot.catalog.meals.some((m) => m.storeId === meal.storeId));
 assert.equal((await guest("GET", root + "/snapshot")).totalQuantity, 8);
 await guest("PUT", `/api/stores/${meal.storeId}/hours`, null, 403);
 await admin("PUT", `/api/stores/${meal.storeId}/hours`, null);
 await owner("POST", root + "/live", { ...ownerLive, leave: true });
-console.log("Sites integration passed: sessions, permissions, idempotency, 6 concurrent writes, presence, bubbles, close/export, store status, payment reminder and confirmation, hours, management list, owner avatar, social settings, emotes and accessories.");
+console.log("Sites integration passed: sessions, permissions, idempotency, 6 concurrent writes, presence, bubbles, close/export, store status, store selection, payment reminder and confirmation, hours, management list, owner avatar, social settings, emotes and accessories.");
 console.log(`Persistence fixture: ${root}`);

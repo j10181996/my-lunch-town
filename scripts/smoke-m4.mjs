@@ -16,6 +16,7 @@ try {
   for (const page of [owner, guest]) page.on("pageerror", (e) => errors.push(e.message));
   await owner.goto(base);
   await owner.getByLabel(/你的暱稱/).fill("摸貓團長");
+  await owner.getByRole("button", { name: "全選營業中的店" }).click();
   await owner.getByRole("button", { name: "開團並取得邀請網址" }).click();
   await owner.waitForURL(/\/r\//);
   const roomUrl = owner.url(), root = `/api/rooms/${new URL(roomUrl).pathname.split("/")[2]}`;
