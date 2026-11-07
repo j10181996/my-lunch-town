@@ -64,8 +64,17 @@ export interface StoreTotal {
   totalQuantity: number;
   totalTwd: number;
 }
+/** 小鎮上不在本團的店面：只用來畫街景，不能進店點餐。 */
+export interface StreetStore {
+  id: Id;
+  name: string;
+  styleKey: string;
+  lotIndex: number;
+}
 export interface RoomSnapshot {
   socialEnabled?: boolean;
+  /** 街上其他店面（不在本團），舊版伺服器可能沒有此欄位。 */
+  streetStores?: StreetStore[];
   room: Room;
   me: Member;
   members: Array<Pick<Member, "id" | "nickname" | "avatarId">>;

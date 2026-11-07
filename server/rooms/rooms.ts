@@ -9,6 +9,7 @@ import type {
   Room,
   RoomPublicInfo,
   RoomSnapshot,
+  StreetStore,
   PaymentInfo,
 } from "../../shared/contracts";
 import { computeStoreTotals, grandTotals, sortItemsByCatalog, sumItems } from "../../shared/pricing";
@@ -151,6 +152,17 @@ export function loadItems(db: Db, roomId: string, memberId?: string): OrderItem[
   }));
 }
 
+/** 街上目前其他店面；本團店家佔用的店面格以凍結資料為準。 */
+function streetStores(db: Db, catalog: Catalog): StreetStore[] {
+  const taken = new Set(catalog.stores.map((s) => s.lotIndex));
+  const ids = new Set(catalog.stores.map((s) => s.id));
+  const rows = db.prepare("SELECT id, name, style_key, lot_index FROM stores ORDER BY lot_index").all() as
+    Array<{ id: string; name: string; style_key: string; lot_index: number }>;
+  return rows
+    .filter((r) => !ids.has(r.id) && !taken.has(r.lot_index))
+    .map((r) => ({ id: r.id, name: r.name, styleKey: r.style_key, lotIndex: r.lot_index }));
+}
+
 function myPayment(db: Db, roomId: string, memberId: string, amountTwd: number) {
   const status = paymentStatus(db, roomId, memberId);
   return { amountTwd, status, remindedAt: status === "unpaid" ? paymentRemindedAt(db, roomId) : null };
@@ -177,6 +189,7 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
     myPayment: room.status === "closed" && me.role !== "owner" && mine.totalTwd > 0
       ? myPayment(db, roomId, me.id, mine.totalTwd) : null,
     socialEnabled: socialEnabled(db, me.id),
+    streetStores: streetStores(db, catalog),
     room: toRoom(room),
     me,
     members: listMembers(db, roomId).map((m) => ({ id: m.id, nickname: m.nickname, avatarId: m.avatarId })),
