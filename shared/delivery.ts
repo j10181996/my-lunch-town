@@ -1,7 +1,8 @@
-import type { DeliveryRules, Point, RoomStoreOrder } from "./contracts";
+import type { DeliveryRules, Point, Room, RoomStoreOrder, Store } from "./contracts";
+import { haversineKm } from "./geo";
 import { STREET_H, STREET_W } from "./town";
 
-/** 依地段經度跨距換算的近似值，非道路距離。 */
+/** 舊團（遊戲街區座標）用：依地段經度跨距換算的近似值，非道路距離。 */
 export const METERS_PER_PX = 4;
 
 export function distanceKm(point: Point, door: Point): number {
@@ -39,6 +40,7 @@ export type DeliveryResult =
   | { kind: "no-point" }
   | { kind: "not-set" }
   | { kind: "pickup-only" }
+  | { kind: "no-store-location" }
   | { kind: "out-of-range"; distanceKm: number; maxKm: number }
   | { kind: "below-min"; distanceKm: number; minTwd: number; shortTwd: number }
   | { kind: "ok"; distanceKm: number; minTwd: number };
@@ -59,6 +61,28 @@ export function evaluateDelivery(
   return { kind: "ok", distanceKm: km, minTwd: tier.minTwd };
 }
 
+type RoomPlace = Pick<Room, "deliveryPoint" | "deliveryLocation">;
+type StorePlace = Pick<Store, "door" | "delivery" | "location">;
+
+/**
+ * 送餐位置到店家的距離。新團用真實經緯度；舊團只有街區座標時沿用像素換算。
+ * 店家沒設位置或團沒選位置時回 null。
+ */
+export function storeDistanceKm(room: RoomPlace, store: StorePlace): number | null {
+  if (room.deliveryLocation) return store.location ? haversineKm(room.deliveryLocation, store.location) : null;
+  return room.deliveryPoint ? distanceKm(room.deliveryPoint, store.door) : null;
+}
+
+/** 收單與畫面共用：依團的送餐位置、店家凍結的規則與位置、該店小計判斷外送或自取。 */
+export function evaluateStoreDelivery(room: RoomPlace, store: StorePlace, subtotalTwd: number): DeliveryResult {
+  if (!room.deliveryLocation && !room.deliveryPoint) return { kind: "no-point" };
+  if (!store.delivery) return { kind: "not-set" };
+  if (!store.delivery.enabled) return { kind: "pickup-only" };
+  const km = storeDistanceKm(room, store);
+  if (km === null) return { kind: "no-store-location" };
+  return evaluateDelivery(store.delivery, km, subtotalTwd);
+}
+
 export function fulfillmentOf(result: DeliveryResult): "delivery" | "pickup" {
   return result.kind === "ok" ? "delivery" : "pickup";
 }
@@ -68,6 +92,7 @@ export function describeDelivery(result: DeliveryResult): string {
     case "no-point": return "未選送餐地點，全部自取";
     case "not-set": return "店家未設定外送，預設自取";
     case "pickup-only": return "店家只提供自取";
+    case "no-store-location": return "店家未設定位置，無法計算距離，需自取";
     case "out-of-range":
       return `超出外送範圍（${result.distanceKm} 公里，最遠 ${result.maxKm} 公里），需自取`;
     case "below-min":

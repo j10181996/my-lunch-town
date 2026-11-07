@@ -98,6 +98,7 @@ export const roomGateway: RoomGatewayExt = {
 export const storeGateway: StoreAdminGateway = {
   setHours: (id, hours) => request<StoreProfile>("PUT", `/api/stores/${id}/hours`, hours),
   setDelivery: (id, rules) => request<StoreProfile>("PUT", `/api/stores/${id}/delivery`, rules),
+  setLocation: (id, location) => request<StoreProfile>("PUT", `/api/stores/${id}/location`, { location }),
   listOrders: (id) => request<StoreOrder[]>("GET", `/api/stores/${id}/orders`),
   updateOrderStatus: (id, orderId, input) =>
     request<StoreOrder>("POST", `/api/stores/${id}/orders/${orderId}/status`, input),

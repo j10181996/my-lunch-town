@@ -154,9 +154,10 @@ it("舊 schema 增欄與種子回填只做一次，保留舊資料與既有訂�
       expect(store).toMatchObject(before.store);
       expect(JSON.parse(store.delivery_json as string)).toEqual(seeded.delivery);
       expect(db.prepare("SELECT * FROM rooms").get())
-        .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null, deadline_at: null, delivery_address: null });
+        .toEqual({ ...before.room, delivery_x: null, delivery_y: null, payment_json: null, payment_sent_at: null, deadline_at: null, delivery_address: null,
+          delivery_lat: null, delivery_lng: null });
       expect(db.prepare("SELECT * FROM room_stores").get())
-        .toEqual({ ...before.frozen, delivery_json: null, order_deadline_at: null });
+        .toEqual({ ...before.frozen, delivery_json: null, order_deadline_at: null, lat: null, lng: null });
       expect(db.prepare("SELECT * FROM store_orders").get())
         .toEqual({ ...before.order, fulfillment: "pickup", distance_km: null, delivery_min_twd: null, delivery_address: null });
       // 舊店完整保留，另由台中種子升級補入本批八家。

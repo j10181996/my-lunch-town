@@ -10,6 +10,9 @@ import type {
   StoreOrderStatus,
 } from "../../shared/contracts";
 import { describeFulfillment, validateDeliveryRules } from "../../shared/delivery";
+import type { GeoPoint } from "../../shared/contracts";
+import { mapsSearchUrl } from "../../shared/geo";
+import { LocationPicker } from "../LocationPicker";
 import { DIET_TAGS, dietTagsOf } from "../../shared/diet";
 import { DEFAULT_MEAL_ART, MEAL_ART, styleOf } from "../../shared/town";
 import { storeGateway as gw } from "../adapters/http";
@@ -177,6 +180,7 @@ function AdminView({ profile, setProfile }: { profile: StoreProfile; setProfile(
                 休息中
               </button>
             </div>
+            <StoreLocationSettings key={`loc-${profile.id}`} profile={profile} onSaved={setProfile} />
             <DeliverySettings key={profile.id} profile={profile} onSaved={setProfile} />
             {statusError && <div className="banner error">{statusError}</div>}
             {infoMsg && <div className="banner ok">{infoMsg}</div>}
@@ -616,6 +620,48 @@ function StoreOrderCard({ order, onSaved, onSeen }: {
       </Modal>}
     </article>
   );
+}
+
+/** 店家真實位置：外送距離以團的送餐位置到這裡的直線距離計算。 */
+function StoreLocationSettings({ profile, onSaved }: { profile: StoreProfile; onSaved(p: StoreProfile): void }) {
+  const [location, setLocation] = useState<GeoPoint | null>(profile.location);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const dirty = location?.lat !== profile.location?.lat || location?.lng !== profile.location?.lng;
+  async function save(next: GeoPoint | null) {
+    setError("");
+    setSaved(false);
+    setBusy(true);
+    try {
+      const p = await gw.setLocation(profile.id, next);
+      onSaved(p);
+      setLocation(p.location);
+      setSaved(true);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <section className="stack delivery-settings" aria-label="店家位置">
+    <h3>店家位置</h3>
+    {!profile.location && <small className="muted">尚未設定位置；開了外送也無法計算距離，揪團會以自取送單</small>}
+    {profile.address && <small className="muted">
+      地址：{profile.address} · <a href={mapsSearchUrl(profile.address)} target="_blank" rel="noreferrer">在 Google 地圖找座標</a>
+    </small>}
+    <LocationPicker label="店家位置" value={location} disabled={busy}
+      onChange={(p) => { setLocation(p); setSaved(false); }} />
+    {error && <div className="banner error" role="alert">{error}</div>}
+    {saved && <small className="delivery-saved" role="status">店家位置已儲存</small>}
+    <div className="row">
+      <button type="button" className="btn green" disabled={busy || !location || !dirty}
+        onClick={() => void save(location)}>{busy ? "儲存中…" : "儲存店家位置"}</button>
+      {profile.location && <button type="button" className="btn small ghost" disabled={busy}
+        onClick={() => void save(null)}>清除位置</button>}
+    </div>
+    <small className="muted">修改只套用到之後開的團。</small>
+  </section>;
 }
 
 function DeliverySettings({ profile, onSaved }: { profile: StoreProfile; onSaved(p: StoreProfile): void }) {

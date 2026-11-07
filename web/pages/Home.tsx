@@ -1,26 +1,26 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { DELIVERY_ADDRESS_MAX, type Point, type TownLot } from "../../shared/contracts";
+import { DELIVERY_ADDRESS_MAX, type GeoPoint, type TownLot } from "../../shared/contracts";
+import { validateGeoPoint } from "../../shared/geo";
 import { roomGateway, storeGateway } from "../adapters/http";
 import { ApiError, errorText, newRequestId } from "../api";
 import { link, navigate } from "../router";
 import { AVATAR_IDS } from "../../shared/town";
-import { AvatarPicker, Storefront, TopBar } from "../ui";
-import { TownMap } from "../TownMap";
+import { AvatarPicker, TopBar } from "../ui";
+import { LocationPicker } from "../LocationPicker";
 import { MyRooms } from "./MyRooms";
 
 export function Home() {
-  const [deliveryPoint, setDeliveryPoint] = useState<Point | null>(() => {
+  const [deliveryLocation, setDeliveryLocation] = useState<GeoPoint | null>(() => {
     try {
-      const p = JSON.parse(localStorageGet("lt-delivery-point"));
-      return p && Number.isFinite(p.x) && Number.isFinite(p.y)
-        && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1 ? { x: p.x, y: p.y } : null;
+      const p = JSON.parse(localStorageGet("lt-delivery-location"));
+      return p ? validateGeoPoint(p) : null;
     } catch {
       return null;
     }
   });
-  function pickDelivery(point: Point | null) {
-    setDeliveryPoint(point);
-    localStorageSet("lt-delivery-point", JSON.stringify(point));
+  function pickDelivery(location: GeoPoint | null) {
+    setDeliveryLocation(location);
+    localStorageSet("lt-delivery-location", JSON.stringify(location));
   }
   const [deliveryAddress, setDeliveryAddressState] = useState(() => localStorageGet("lt-delivery-address"));
   function setDeliveryAddress(value: string) {
@@ -74,10 +74,10 @@ export function Home() {
       }
       const { deadlineAt } = frozenDeadline.current;
       // 沒選地點就全部自取，地址不送出。
-      const address = deliveryPoint ? deliveryAddress.trim() : "";
+      const address = deliveryLocation ? deliveryAddress.trim() : "";
       const r = await roomGateway.createRoom({
         title, nickname, avatarId: avatar, requestId, storeIds,
-        deliveryPoint: deliveryPoint ?? undefined, deliveryAddress: address || undefined,
+        deliveryLocation: deliveryLocation ?? undefined, deliveryAddress: address || undefined,
         ...(deadlineAt !== null ? { deadlineAt } : {}),
       });
       navigate(r.invitePath);
@@ -160,14 +160,12 @@ export function Home() {
               : "截止前 5 分鐘提醒團員；時間到後不能再點餐。"}</small>
           </fieldset>
           <div className="stack delivery-picker">
-            <strong>送餐地點（點地圖選擇）</strong>
-            <TownMap town={town} marker={deliveryPoint} onPick={pickDelivery}
-              renderLot={(lot) => lot.store ? <div>
-                <Storefront styleKey={lot.store.styleKey} resting={lot.store.status !== "open"} />
-                <div className="lot-label">{lot.store.name}{lot.store.status === "open" ? "" : "（休息）"}</div>
-              </div> : <div className="lot-label">空地</div>} />
-            <small className="muted">{deliveryPoint ? "已選送餐地點，收單時依各店門檻決定外送或自取。" : "未選送餐地點，全部自取。"}</small>
-            {deliveryPoint && <label className="field">
+            <strong>送餐位置</strong>
+            <LocationPicker label="送餐位置" value={deliveryLocation} onChange={pickDelivery} />
+            <small className="muted">{deliveryLocation
+              ? "已設定送餐位置，收單時依與各店的直線距離與門檻決定外送或自取。"
+              : "未設定送餐位置，全部自取。"}</small>
+            {deliveryLocation && <label className="field">
               送餐地址 <small>選填，最多 {DELIVERY_ADDRESS_MAX} 字；只給團員與要外送的店家看</small>
               <input type="text" value={deliveryAddress} maxLength={DELIVERY_ADDRESS_MAX}
                 placeholder="例：台中市西屯區市政北二路 100 號 8 樓，到了請打分機 123"

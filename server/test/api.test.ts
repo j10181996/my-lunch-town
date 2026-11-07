@@ -4,6 +4,7 @@ import { DELIVERY_ADDRESS_MAX, type RoomSnapshot } from "../../shared/contracts"
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app";
 import { distanceKm } from "../../shared/delivery";
+import { haversineKm } from "../../shared/geo";
 import { lotDoor } from "../../shared/town";
 import { createRoom } from "../rooms/rooms";
 import { changeQuantity, closeRoom } from "../orders/orders";
@@ -758,6 +759,72 @@ describe("外送設定、凍結與收單", () => {
     for (const deliveryAddress of ["B 棟", undefined]) {
       expect(await owner.post("/api/rooms", { ...body, deliveryAddress }))
         .toMatchObject({ status: 409, body: { code: "REQUEST_ID_CONFLICT" } });
+    }
+  });
+});
+
+describe("真實經緯度外送", () => {
+  const rules = { enabled: true, tiers: [{ maxKm: 1, minTwd: 0 }] };
+  // 虛構種子：阿福 24.15,120.65；大樹 24.155,120.66；綠芽 24.16,120.67
+  const af = { lat: 24.15, lng: 120.65 };
+  const tree = { lat: 24.155, lng: 120.66 };
+
+  it("店家位置：擁有者可設定與清除，其他人 403，非法座標 400", async () => {
+    const shop = client();
+    await shop.post("/api/stores/claim", { manageKey: "demo-store-af" });
+    expect((await shop.get("/api/stores/store-af")).body.location).toEqual(af);
+    expect(await client().put("/api/stores/store-af/location", { location: af }))
+      .toMatchObject({ status: 403, body: { code: "NOT_ALLOWED" } });
+    for (const body of [{}, { location: { lat: 91, lng: 0 } }, { location: "24,120" }]) {
+      expect(await shop.put("/api/stores/store-af/location", body))
+        .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+    }
+    expect((await shop.put("/api/stores/store-af/location", { location: { lat: 24.1234567, lng: 120.7 } })).body.location)
+      .toEqual({ lat: 24.123457, lng: 120.7 });
+    expect((await shop.put("/api/stores/store-af/location", { location: null })).body.location).toBeNull();
+  });
+
+  it("開團凍結店家位置；收單依真實距離，店家未設位置則自取", async () => {
+    const shop = client();
+    for (const id of ["af", "tree", "green"]) {
+      await shop.post("/api/stores/claim", { manageKey: `demo-store-${id}` });
+      await shop.put(`/api/stores/store-${id}/delivery`, rules);
+    }
+    await shop.put("/api/stores/store-green/location", { location: null });
+    const owner = client();
+    const { snapshot } = (await owner.post("/api/rooms", {
+      title: "經緯度", nickname: "阿凱", requestId: rid(), deliveryLocation: af, deliveryAddress: "A 棟",
+      storeIds: SAMPLE_STORE_IDS,
+    })).body;
+    const roomId = snapshot.room.id;
+    expect(snapshot.room).toMatchObject({ deliveryLocation: af, deliveryPoint: null, deliveryAddress: "A 棟" });
+    expect(snapshot.catalog.stores.map((s: { location: unknown }) => s.location)).toEqual([af, tree, null]);
+    // 開團後店家搬家不影響這團
+    await shop.put("/api/stores/store-af/location", { location: { lat: 25, lng: 121 } });
+    for (const meal of ["meal-af-chicken", "meal-tree-dry", "meal-green-tofu"]) await plus(owner, roomId, meal);
+    const closed = (await owner.post(`/api/rooms/${roomId}/close`, { requestId: rid() })).body;
+    expect(closed.storeOrders).toMatchObject([
+      { storeId: "store-af", fulfillment: "delivery", distanceKm: 0, deliveryMinTwd: 0 },
+      { storeId: "store-tree", fulfillment: "pickup", distanceKm: haversineKm(af, tree), deliveryMinTwd: null },
+      { storeId: "store-green", fulfillment: "pickup", distanceKm: null, deliveryMinTwd: null },
+    ]);
+    expect(haversineKm(af, tree)).toBeGreaterThan(1);
+    expect((await shop.get("/api/stores/store-af/orders")).body[0]).toMatchObject({ deliveryAddress: "A 棟" });
+  });
+
+  it("開團驗證位置、不可同時帶街區座標；去重包含位置", async () => {
+    const owner = client();
+    const body = { title: "午餐", nickname: "阿凱", requestId: rid(), deliveryLocation: af, storeIds: SAMPLE_STORE_IDS };
+    const first = await owner.post("/api/rooms", body);
+    expect(first.status).toBe(200);
+    expect((await owner.post("/api/rooms", body)).body).toEqual(first.body);
+    for (const changed of [{ deliveryLocation: tree }, { deliveryLocation: undefined }, { deliveryLocation: undefined, deliveryPoint: { x: 0, y: 0 } }]) {
+      expect(await owner.post("/api/rooms", { ...body, ...changed }))
+        .toMatchObject({ status: 409, body: { code: "REQUEST_ID_CONFLICT" } });
+    }
+    for (const bad of [{ deliveryLocation: { lat: 100, lng: 0 } }, { deliveryLocation: null }, { deliveryPoint: { x: 0, y: 0 } }]) {
+      expect(await owner.post("/api/rooms", { ...body, requestId: rid(), ...bad }))
+        .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
     }
   });
 });

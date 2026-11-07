@@ -48,11 +48,9 @@ await shot(shop, "03-shop-admin");
 step("揪團者開團");
 await owner.goto(BASE);
 await owner.getByLabel(/你的暱稱/).fill("阿凱");
-const deliveryMap = owner.locator(".delivery-picker .town-map");
-const deliveryBox = await deliveryMap.boundingBox();
-if (!deliveryBox) throw new Error("開團地圖沒有顯示");
-await deliveryMap.click({ position: { x: deliveryBox.width * 0.55, y: deliveryBox.height * 0.59 } });
-await owner.getByText("已選送餐地點，收單時依各店門檻決定外送或自取。").waitFor();
+// 虛構座標；與種子店家同一區，避免依賴瀏覽器定位權限。
+await owner.getByLabel("送餐位置座標").fill("24.152, 120.655");
+await owner.getByText("已設定送餐位置，收單時依與各店的直線距離與門檻決定外送或自取。").waitFor();
 await owner.getByRole("button", { name: "全選營業中的店" }).click();
 await owner.getByRole("button", { name: "開團並取得邀請網址" }).click();
 await owner.waitForURL(/\/r\//);

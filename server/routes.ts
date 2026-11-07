@@ -20,6 +20,7 @@ import {
   myStores,
   setStatus,
   setDelivery,
+  setLocation,
   updateMeal,
   updateStore,
 } from "./stores/stores";
@@ -81,6 +82,9 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   // —— 店家 ——
   app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/delivery", async (req) =>
     setDelivery(db, req.sid, req.params.storeId, req.body),
+  );
+  app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/location", async (req) =>
+    setLocation(db, req.sid, req.params.storeId, req.body),
   );
   app.get<{ Params: { storeId: string } }>("/api/stores/:storeId/orders", async (req) =>
     listStoreOrders(db, req.sid, req.params.storeId),

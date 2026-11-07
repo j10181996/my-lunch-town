@@ -3,9 +3,9 @@
   "currency": "TWD",
   "isSample": true,
   "stores": [
-    { "id": "store-af", "name": "阿福便當", "sceneId": "shop:store-af", "door": { "x": 0.25, "y": 0.55 }, "interiorAssetKey": "interior-bento" },
-    { "id": "store-tree", "name": "大樹麵店", "sceneId": "shop:store-tree", "door": { "x": 0.5, "y": 0.4 }, "interiorAssetKey": "interior-noodle" },
-    { "id": "store-green", "name": "綠芽素食", "sceneId": "shop:store-green", "door": { "x": 0.75, "y": 0.55 }, "interiorAssetKey": "interior-vegetarian" }
+    { "id": "store-af", "name": "阿福便當", "sceneId": "shop:store-af", "door": { "x": 0.25, "y": 0.55 }, "interiorAssetKey": "interior-bento", "location": { "lat": 24.15, "lng": 120.65 } },
+    { "id": "store-tree", "name": "大樹麵店", "sceneId": "shop:store-tree", "door": { "x": 0.5, "y": 0.4 }, "interiorAssetKey": "interior-noodle", "location": { "lat": 24.155, "lng": 120.66 } },
+    { "id": "store-green", "name": "綠芽素食", "sceneId": "shop:store-green", "door": { "x": 0.75, "y": 0.55 }, "interiorAssetKey": "interior-vegetarian", "location": { "lat": 24.16, "lng": 120.67 } }
   ],
   "meals": [
     { "id": "meal-af-chicken", "storeId": "store-af", "name": "招牌雞腿飯", "priceTwd": 120, "imageAssetKey": "meal-chicken-bento", "available": true, "tags": [] },

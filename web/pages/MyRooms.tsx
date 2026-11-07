@@ -36,8 +36,10 @@ export function MyRooms({ openStoreIds }: { openStoreIds: Set<string> }) {
     try {
       const r = await roomGateway.createRoom({
         title: room.title, nickname: room.nickname, avatarId: room.avatarId, requestId, storeIds,
-        deliveryPoint: room.deliveryPoint ?? undefined,
-        deliveryAddress: room.deliveryPoint ? room.deliveryAddress ?? undefined : undefined,
+        // 優先用真實位置；升級前的舊團只有街區座標時沿用，伺服器仍接受。
+        ...(room.deliveryLocation ? { deliveryLocation: room.deliveryLocation }
+          : room.deliveryPoint ? { deliveryPoint: room.deliveryPoint } : {}),
+        deliveryAddress: room.deliveryLocation || room.deliveryPoint ? room.deliveryAddress ?? undefined : undefined,
       });
       navigate(r.invitePath);
     } catch (e) {
@@ -51,7 +53,7 @@ export function MyRooms({ openStoreIds }: { openStoreIds: Set<string> }) {
   return (
     <section className="panel my-rooms" aria-label="我的團">
       <h2>我的團</h2>
-      <p className="muted" style={{ margin: 0 }}>你開過和參加過的團。「再揪一次」沿用團名、送餐地點和店家，菜單用店家目前的版本。</p>
+      <p className="muted" style={{ margin: 0 }}>你開過和參加過的團。「再揪一次」沿用團名、送餐位置與地址和店家，菜單用店家目前的版本。</p>
       {error && <div className="banner error">{error}</div>}
       <ul className="my-room-list">
         {(expanded ? rooms : rooms.slice(0, PREVIEW_COUNT)).map((room) => {
@@ -69,7 +71,7 @@ export function MyRooms({ openStoreIds }: { openStoreIds: Set<string> }) {
               <small className="muted">
                 {room.stores.map((s) => s.name).join("、")} · {room.memberCount} 人
                 {room.myTotalTwd > 0 ? ` · 我點了 NT$${room.myTotalTwd}` : " · 我沒點"}
-                {room.deliveryPoint ? " · 外送" : " · 自取"}
+                {room.deliveryLocation || room.deliveryPoint ? " · 外送" : " · 自取"}
               </small>
               <div className="row">
                 <a className="btn small" {...link(`/r/${room.id}`)}>回到這團</a>

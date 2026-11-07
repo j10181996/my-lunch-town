@@ -2,6 +2,7 @@ import { migrateTaichungExpansion } from "./catalog/taichung-expansion";
 import { PARTY_SCHEMA } from "./rooms/party-schema";
 import { migrateStoreHours } from "./store-hours-schema";
 import { migrateDeliveryAddress } from "./delivery-address-schema";
+import { migrateGeoLocation } from "./geo-schema";
 import { migrateDeadline } from "./rooms/deadline";
 import { SOCIAL_SCHEMA } from "./rooms/social-schema";
 import { hashKey, withWriteTx } from "./db-shared";
@@ -11,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { DeliveryRules } from "../shared/contracts";
+import type { DeliveryRules, GeoPoint } from "../shared/contracts";
 
 export type Db = DatabaseSync;
 
@@ -136,6 +137,7 @@ export function openDb(path: string, seedFile: string = SAMPLE_SEED): Db {
   db.exec(PARTY_SCHEMA);
   migrateDelivery(db, seedFile);
   migratePayment(db);
+  migrateGeoLocation(db); // 須在 seedIfEmpty 前：種子可帶店家位置
   seedIfEmpty(db, seedFile);
   migrateStoreHours(db);
   migrateTaichungExpansion(db);
@@ -153,6 +155,7 @@ interface SeedFile {
     styleKey?: string;
     lotIndex?: number;
     delivery?: DeliveryRules;
+    location?: GeoPoint;
   }>;
   meals: Array<{ id: string; storeId: string; name: string; priceTwd: number; imageAssetKey: string; available: boolean; tags: string[] }>;
 }
@@ -203,8 +206,8 @@ function seedIfEmpty(db: Db, seedFile: string) {
   const now = Date.now();
   const insStore = db.prepare(
     `INSERT INTO stores
-      (id, name, style_key, lot_index, status, owner_session_id, manage_key_hash, is_sample, updated_at, delivery_json)
-      VALUES (?, ?, ?, ?, 'open', NULL, ?, ?, ?, ?)`,
+      (id, name, style_key, lot_index, status, owner_session_id, manage_key_hash, is_sample, updated_at, delivery_json, lat, lng)
+      VALUES (?, ?, ?, ?, 'open', NULL, ?, ?, ?, ?, ?, ?)`,
   );
   // 種子店家的管理碼固定為 demo-{storeId}，方便展示時認領；之後自行開的店為隨機碼。
   const insMeal = db.prepare(
@@ -221,6 +224,8 @@ function seedIfEmpty(db: Db, seedFile: string) {
         isSample,
         now,
         s.delivery ? JSON.stringify(s.delivery) : null,
+        s.location?.lat ?? null,
+        s.location?.lng ?? null,
       ),
     );
     seed.meals.forEach((m, i) =>

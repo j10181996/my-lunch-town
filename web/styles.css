@@ -259,11 +259,6 @@ label.field small { font-weight: 400; color: var(--sub); }
 .store-orders summary, .store-order-card summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
 
 /* 外送位置、門檻與送單方式 */
-.town-map.pickable { cursor: crosshair; }
-.delivery-marker {
-  position: absolute; z-index: 2; pointer-events: none; transform: translate(-15%, -90%);
-  color: var(--accent-ink); font-size: 30px; line-height: 1; text-shadow: 1px 1px var(--paper);
-}
 .delivery-status { display: grid; gap: 4px; color: var(--sub); margin: 4px 0; }
 .delivery-progress { width: 100%; height: 10px; accent-color: var(--green); }
 .fulfillment-badge {
@@ -272,6 +267,7 @@ label.field small { font-weight: 400; color: var(--sub); }
 }
 .fulfillment-badge.delivery { background: var(--green-bg); color: var(--green); }
 .delivery-address { overflow-wrap: anywhere; }
+.location-value { color: var(--sub); overflow-wrap: anywhere; }
 .delivery-warning { flex-direction: column; align-items: flex-start; }
 .delivery-settings { border-block: 1px solid var(--line); padding: 12px 0; }
 .delivery-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }

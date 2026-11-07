@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Meal, OwnerSummary, RoomSnapshot, Store } from "../../shared/contracts";
 import { budgetStatus, DIET_FILTERS, dietTagsOf, matchesDietFilters } from "../../shared/diet";
-import { describeDelivery, describeFulfillment, distanceKm, evaluateDelivery } from "../../shared/delivery";
+import { describeDelivery, describeFulfillment, evaluateStoreDelivery } from "../../shared/delivery";
 import { styleOf } from "../../shared/town";
 import { drawIcon } from "../art/scenes";
 import { ctxOf, makeCanvas } from "../art/pixel";
@@ -352,9 +352,8 @@ export function RoomOrderStatus({ snap }: { snap: RoomSnapshot }) {
 }
 
 export function deliveryForStore(snap: RoomSnapshot, store: Store) {
-  const km = snap.room.deliveryPoint ? distanceKm(snap.room.deliveryPoint, store.door) : null;
   const subtotal = snap.storeTotals.find((s) => s.storeId === store.id)?.totalTwd ?? 0;
-  return evaluateDelivery(store.delivery, km, subtotal);
+  return evaluateStoreDelivery(snap.room, store, subtotal);
 }
 
 function DeliveryStatus({ snap, store }: { snap: RoomSnapshot; store: Store }) {

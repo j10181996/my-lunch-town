@@ -10,6 +10,7 @@ import type {
   UpdateStoreInput,
 } from "../../shared/contracts";
 import { validateDeliveryRules } from "../../shared/delivery";
+import { validateGeoPoint } from "../../shared/geo";
 import { DEFAULT_MEAL_ART, LOTS, MEAL_ART_KEYS, STYLE_KEYS } from "../../shared/town";
 import { AppError, err, withWriteTx, type Db } from "../db";
 import { hashKey, intInRange, oneOf, randomId, requestId as checkRequestId, text } from "../util";
@@ -25,6 +26,8 @@ interface StoreRow {
   is_sample: number;
   delivery_json: string | null;
   hours_json: string | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 const LOT_INDEXES = LOTS.map((l) => l.index);
@@ -60,6 +63,7 @@ function loadProfile(db: Db, storeId: string): StoreProfile {
     activeRoomCount: active.n,
     hours: s.hours_json ? JSON.parse(s.hours_json) : null,
     delivery: s.delivery_json === null ? null : JSON.parse(s.delivery_json),
+    location: s.lat == null ? null : { lat: s.lat, lng: s.lng! },
     meals: meals.map(
       (m): AdminMeal => ({
         id: m.id,
@@ -308,6 +312,22 @@ export function setDelivery(db: Db, sessionId: string, storeId: string, input: u
     }
     db.prepare("UPDATE stores SET delivery_json = ?, updated_at = ? WHERE id = ?")
       .run(JSON.stringify(rules), Date.now(), storeId);
+    return loadProfile(db, storeId);
+  });
+}
+
+/** body：{ location: { lat, lng } | null }；null 清除位置。修改只套用到之後開的團。 */
+export function setLocation(db: Db, sessionId: string, storeId: string, input: unknown): StoreProfile {
+  return withWriteTx(db, () => {
+    requireOwner(db, sessionId, storeId);
+    if (!input || typeof input !== "object" || !("location" in input)) throw err.invalid("請提供店家位置");
+    const raw = (input as { location: unknown }).location;
+    let location = null;
+    if (raw !== null) {
+      try { location = validateGeoPoint(raw, "店家位置"); } catch (e) { throw err.invalid((e as Error).message); }
+    }
+    db.prepare("UPDATE stores SET lat = ?, lng = ?, updated_at = ? WHERE id = ?")
+      .run(location?.lat ?? null, location?.lng ?? null, Date.now(), storeId);
     return loadProfile(db, storeId);
   });
 }
