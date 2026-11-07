@@ -8,7 +8,8 @@ import { noopEvents } from "../context";
 import { uploadMealImage, readMealImage, type ImageStorage } from "../images/images";
 import { fileImageStorage } from "../images/files";
 import { encodeMealPng } from "../images/png";
-import { quantizeMealPixels } from "../../shared/meal-images";
+import { MEAL_PALETTE_RGB, quantizeMealPixels } from "../../shared/meal-images";
+import { styleMealPhoto, type MealDish } from "../../web/shop-admin/meal-photo-style";
 import { updateMeal } from "../stores/stores";
 import { createRoom, buildSnapshot } from "../rooms/rooms";
 import { buildApp } from "../app";
@@ -24,12 +25,41 @@ function fixture() {
   return { db, objects, images, ctx: { db, images, events: noopEvents } };
 }
 it("固定尺寸量化、透明像素清除及格式限制", () => {
-  const data = pixels(); data[0] = 42; data[1] = 43; data[2] = 220;
-  expect(Array.from(quantizeMealPixels(data).subarray(0, 4))).toEqual([0, 85, 255, 255]);
+  const data = pixels(); data[0] = 255; data[1] = 245; data[2] = 210;
+  expect(Array.from(quantizeMealPixels(data).subarray(0, 4))).toEqual([255, 245, 210, 255]);
   data[3] = 127; expect(Array.from(quantizeMealPixels(data).subarray(0, 4))).toEqual([0, 0, 0, 0]);
   for (const invalid of [[], new Array(4097).fill(0), data.map((n, i) => i === 2 ? 256 : n), data.map((n, i) => i === 2 ? 1.5 : n)]) {
     expect(() => quantizeMealPixels(invalid)).toThrow();
   }
+});
+it("小鎮色盤與描邊不被後端二次量化改色", () => {
+  for (const color of MEAL_PALETTE_RGB) {
+    const input = new Array(4096).fill(0);
+    for (let p = 0; p < input.length; p += 4) input.splice(p, 4, ...color, 255);
+    expect(Array.from(quantizeMealPixels(input))).toEqual(input);
+  }
+});
+it("三種餐具都保留透明邊界、內建深棕描邊與食材差異", () => {
+  const pictures = new Set<string>();
+  for (const dish of ["bento", "bowl", "plate"] as MealDish[]) {
+    const photo = pixels();
+    const styled = styleMealPhoto(photo, dish);
+    expect(styled.length).toBe(4096);
+    for (let x = 0; x < 32; x++) { expect(styled[x * 4 + 3]).toBe(0); expect(styled[(31 * 32 + x) * 4 + 3]).toBe(0); }
+    expect(Array.from(quantizeMealPixels(styled))).toEqual(Array.from(styled));
+    expect(Array.from(styled).join(",")).toContain("68,48,39,255");
+    const green = Array.from({ length: 4096 }, (_, p) => [40, 101, 58, 255][p % 4]);
+    expect(styleMealPhoto(green, dish)).not.toEqual(styled);
+    pictures.add(Array.from(styled).join(","));
+  }
+  expect(pictures.size).toBe(3);
+});
+it("去除孤立雜點，灰白背景整理成米白色而不增加雜色", () => {
+  const gray: number[] = Array.from({ length: 4096 }, (_, p) => p % 4 === 3 ? 255 : 170);
+  const clean = styleMealPhoto(gray, "bento");
+  const noisy = [...gray]; noisy.splice((15 * 32 + 15) * 4, 4, 255, 0, 255, 255);
+  expect(styleMealPhoto(noisy, "bento")).toEqual(clean);
+  expect(Array.from(clean).join(",")).toContain("255,245,210,255");
 });
 it("PNG 檔頭、尺寸、CRC 與解壓後像素皆正確", () => {
   const rgba = quantizeMealPixels(pixels()); const png = encodeMealPng(rgba);

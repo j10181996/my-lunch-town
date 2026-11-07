@@ -351,10 +351,19 @@ label.field small { font-weight: 400; color: var(--sub); }
 
 .photo-uploader { border-bottom: 2px dashed var(--line); padding-bottom: 16px; }
 .photo-uploader h4, .photo-uploader p { margin: 0; }
-.photo-preview { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.photo-preview img { background: repeating-conic-gradient(#f4e9d6 0% 25%, #fff8eb 0% 50%) 0 / 16px 16px; border: 2px solid var(--line); flex: none; }
-.photo-preview p { flex: 1; min-width: 160px; }
-.photo-uploader input[type=file] { max-width: 100%; }
+.photo-uploader .field { min-width: 0; }
+.photo-uploader input[type=file] { width: 100%; max-width: 100%; min-width: 0; }
+.photo-dishes { border: 0; margin: 0; padding: 0; min-width: 0; }
+.photo-dishes legend { font-weight: 700; margin-bottom: 8px; }
+.photo-dishes > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo-dishes .btn { min-height: 44px; flex: 1; }
+.photo-dishes [aria-pressed=true] { background: var(--green-bg); border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+.photo-comparison { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.photo-comparison figure { margin: 0; padding: 12px 4px; display: grid; justify-items: center; gap: 8px; background: #fff; border: 2px solid var(--line); border-radius: 12px; min-width: 0; }
+.photo-comparison figure.photo-result { border-color: var(--green); background: #f3f7ed; }
+.photo-comparison img { width: min(96px, 100%); height: auto; aspect-ratio: 1; object-fit: contain; }
+.photo-comparison figcaption { font-size: 13px; font-weight: 700; text-align: center; }
+.photo-note { font-size: 13px; line-height: 1.6; }
 /* Pixel type is reserved for game identity; ordering information stays in Noto. */
 h1, h2, h3, .logo, .btn { font-family: var(--font-pixel); font-weight: 400; }
 .stage-action, .btn.plus, .btn.minus { font-family: var(--font); font-weight: 700; }

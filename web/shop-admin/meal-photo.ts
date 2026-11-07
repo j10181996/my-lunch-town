@@ -1,4 +1,5 @@
 import { MAX_PHOTO_BYTES, MAX_PHOTO_PIXELS, MEAL_IMAGE_SIZE, quantizeMealPixels } from "../../shared/meal-images";
+import { styleMealPhoto, type MealDish } from "./meal-photo-style";
 
 /** 先讀檔頭限制解碼尺寸，只接受 PNG／JPEG，轉成單張靜態圖片。 */
 export function photoDimensions(bytes: Uint8Array, mime: string): { width: number; height: number } {
@@ -27,7 +28,7 @@ export function photoDimensions(bytes: Uint8Array, mime: string): { width: numbe
   if (width > 8192 || height > 8192 || width * height > MAX_PHOTO_PIXELS) throw new Error("照片尺寸過大，請使用 1600 萬像素以下、單邊不超過 8192 像素的照片");
   return { width, height };
 }
-export async function prepareMealPhoto(file: File, fit: "cover" | "contain") {
+export async function prepareMealPhoto(file: File, fit: "cover" | "contain", dish: MealDish = "bento") {
   if (!["image/png", "image/jpeg"].includes(file.type)) throw new Error("請選擇 PNG 或 JPEG 照片");
   if (file.size > MAX_PHOTO_BYTES) throw new Error("照片不能超過 5 MB");
   photoDimensions(new Uint8Array(await file.arrayBuffer()), file.type);
@@ -39,8 +40,9 @@ export async function prepareMealPhoto(file: File, fit: "cover" | "contain") {
     const ratio = (fit === "cover" ? Math.max : Math.min)(MEAL_IMAGE_SIZE / bitmap.width, MEAL_IMAGE_SIZE / bitmap.height);
     const width = bitmap.width * ratio, height = bitmap.height * ratio;
     ctx.drawImage(bitmap, (MEAL_IMAGE_SIZE - width) / 2, (MEAL_IMAGE_SIZE - height) / 2, width, height);
-    const pixels = quantizeMealPixels(ctx.getImageData(0, 0, MEAL_IMAGE_SIZE, MEAL_IMAGE_SIZE).data);
+    const originalPreview = canvas.toDataURL("image/png");
+    const pixels = quantizeMealPixels(styleMealPhoto(ctx.getImageData(0, 0, MEAL_IMAGE_SIZE, MEAL_IMAGE_SIZE).data, dish));
     ctx.putImageData(new ImageData(new Uint8ClampedArray(pixels), MEAL_IMAGE_SIZE, MEAL_IMAGE_SIZE), 0, 0);
-    return { pixels: Array.from(pixels), preview: canvas.toDataURL("image/png") };
+    return { pixels: Array.from(pixels), preview: canvas.toDataURL("image/png"), originalPreview };
   } finally { bitmap.close(); }
 }

@@ -32,7 +32,7 @@ while (offset < bytes.length) {
 }
 assert.equal(inflateSync(Buffer.concat(compressed)).length, 32 * 129);
 await shop("PATCH", `${root}/meals/${meal.id}`, { imageAssetKey: image.imageAssetKey });
-const first = await owner("POST", "/api/rooms", { title: "圖片快照驗證", nickname: "團主", requestId: crypto.randomUUID() });
+const first = await owner("POST", "/api/rooms", { title: "圖片快照驗證", nickname: "團主", storeIds: [store.id], requestId: crypto.randomUUID() });
 assert.equal(first.snapshot.catalog.meals.find((m) => m.id === meal.id).imageAssetKey, image.imageAssetKey);
 const secondPixels = [...pixels]; secondPixels[0] = 255;
 const second = await shop("POST", root + "/images", { pixels: secondPixels });
