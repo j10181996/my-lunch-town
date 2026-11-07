@@ -1,3 +1,4 @@
+import { sendEmote, setSocial } from "./rooms/social";
 import type { FastifyInstance } from "fastify";
 import type { Ctx } from "./context";
 import { createRoom, buildSnapshot, getPublicInfo, joinRoom } from "./rooms/rooms";
@@ -25,6 +26,9 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   const { db } = ctx;
   type P = { id: string };
   type SP = { storeId: string; mealId: string };
+
+  app.post<{ Params: P }>("/api/rooms/:id/emote", async (req) => sendEmote(ctx, req.sid, req.params.id, req.body));
+  app.put<{ Params: P }>("/api/rooms/:id/social", async (req) => setSocial(ctx, req.sid, req.params.id, req.body));
 
   // —— 團購 ——
   app.post("/api/rooms", async (req) => createRoom(ctx, req.sid, req.body as never));

@@ -1,3 +1,4 @@
+import type { EmoteId } from "../../shared/social";
 import * as sitesLive from "./sites-live";
 import { io, type Socket } from "socket.io-client";
 import type {
@@ -23,6 +24,8 @@ let socket: Socket | null = null;
 const bubbleListeners = new Set<(b: PlayerBubble) => void>();
 
 export interface RoomGatewayExt extends RoomGateway {
+  sendEmote(roomId: string, emote: EmoteId): Promise<{ text: string }>;
+  setSocial(roomId: string, enabled: boolean): Promise<{ enabled: boolean }>;
   setPaymentInfo(roomId: string, info: PaymentInfo): Promise<RoomSnapshot>;
   sendPaymentInfo(roomId: string): Promise<RoomSnapshot>;
   reportPayment(roomId: string): Promise<RoomSnapshot>;
@@ -32,6 +35,8 @@ export interface RoomGatewayExt extends RoomGateway {
 }
 
 export const roomGateway: RoomGatewayExt = {
+  sendEmote: (id, emote) => request("POST", `/api/rooms/${id}/emote`, { emote }),
+  setSocial: (id, enabled) => request("PUT", `/api/rooms/${id}/social`, { enabled }),
   setPaymentInfo: (id, info) => request("PUT", `/api/rooms/${id}/payment-info`, info),
   sendPaymentInfo: (id) => request("POST", `/api/rooms/${id}/payment-info/send`),
   reportPayment: (id) => request("POST", `/api/rooms/${id}/payment/report`),

@@ -1,3 +1,6 @@
+import { animalFrame } from "../art/animals";
+import { createTownFriends, friendPose, type TownFriend, type FriendPose } from "./town-life";
+import { ACHIEVEMENTS, type Accessory, type AchievementId } from "./collection";
 import type { Point, Direction, Meal, MoveInput, PlayerPresence, SceneId, Store } from "../../shared/contracts";
 import { STREET_W, STREET_H, STREET_SPAWN, sceneSize, viewSize } from "../../shared/town";
 import { CHAR_H, CHAR_W, characterFrames } from "../art/characters";
@@ -29,6 +32,9 @@ export interface GameCallbacks {
   onNearProduct(mealId: string | null): void;
   /** 在商品前按 Enter。 */
   onPickProduct(mealId: string): void;
+  onNearFriend?(friend: { name: string; animal: boolean } | null): void;
+  onPet?(): void;
+  onCollect?(id: string): void;
 }
 
 interface Actor {
@@ -44,6 +50,8 @@ interface Remote extends Actor {
   ty: number;
   sceneId: SceneId;
   lastSeen: number;
+  accessory?: Accessory;
+  badge?: AchievementId;
 }
 
 /** Canvas 2D 小遊戲：一個邏輯緩衝區整數倍放大，再以高解析度補畫文字。 */
@@ -70,6 +78,48 @@ export class Game {
   private members = new Map<string, GameMember>();
   private remotes = new Map<string, Remote>();
   private bubbles = new Map<string, { text: string; until: number }>();
+
+  private friends: TownFriend[] = [];
+  private friendPoses = new Map<string, FriendPose>();
+  private nearFriend: TownFriend | null = null;
+  private lifeEnabled = true;
+  private social = true;
+  private roomId = "";
+  private accessory: Accessory = "none";
+  private badge: AchievementId | undefined;
+  private items: Array<{ id: string; x: number; y: number; icon: string }> = [];
+  private lastInteraction = 0;
+
+  setTownLife(roomId: string, enabled: boolean) {
+    if (roomId !== this.roomId) { this.roomId = roomId; this.friends = createTownFriends(roomId); this.friendPoses.clear(); }
+    this.lifeEnabled = enabled;
+    if (!enabled) this.setNearFriend(null);
+  }
+
+  setSocial(enabled: boolean) { this.social = enabled; if (!enabled) this.bubbles.clear(); }
+  setAppearance(accessory: Accessory, badge?: AchievementId) {
+    if (this.accessory === accessory && this.badge === badge) return;
+    this.accessory = accessory; this.badge = badge; this.dirty = true;
+  }
+  setCollectibles(items: typeof this.items) { this.items = items; }
+
+  private setNearFriend(friend: TownFriend | null) {
+    if (this.nearFriend?.id === friend?.id) return;
+    this.nearFriend = friend;
+    this.cb.onNearFriend?.(friend ? { name: friend.name, animal: friend.kind !== "villager" } : null);
+  }
+
+  interact() {
+    if (!this.enabled || this.sceneId !== "street" || this.nearDoor || !this.nearFriend) return;
+    const now = performance.now();
+    if (now - this.lastInteraction < 800) return;
+    this.lastInteraction = now;
+    const friend = this.nearFriend;
+    this.bubbles.set(friend.id, { text: friend.kind === "villager"
+      ? ["今天也要記得吃午餐喔！", "沿著小路走，就能找到好吃的。", "聽說橘子最喜歡被摸摸了！"][Math.floor(now / 1000) % 3]
+      : `♥ ${friend.name}開心地蹭了蹭你！`, until: now + 2600 });
+    if (friend.kind !== "villager") this.cb.onPet?.();
+  }
 
   private keys = new Set<string>();
   private nearDoor: Store | null = null;
@@ -182,8 +232,9 @@ export class Game {
       const ty = p.y * size.h;
       const r = this.remotes.get(p.memberId);
       if (!r || r.sceneId !== p.sceneId) {
-        this.remotes.set(p.memberId, { x: tx, y: ty, tx, ty, dir: p.direction, moving: false, animT: 0, sceneId: p.sceneId, lastSeen: now });
+        this.remotes.set(p.memberId, { x: tx, y: ty, tx, ty, dir: p.direction, moving: false, animT: 0, sceneId: p.sceneId, lastSeen: now, accessory: p.accessory, badge: p.badge });
       } else {
+        r.accessory = p.accessory; r.badge = p.badge;
         r.tx = tx;
         r.ty = ty;
         r.dir = p.direction;
@@ -194,6 +245,8 @@ export class Game {
   }
 
   showBubble(memberId: string, text: string) {
+    if (!text) { this.bubbles.delete(memberId); return; }
+    if (!this.social) return;
     this.bubbles.set(memberId, { text, until: performance.now() + 2600 });
   }
 
@@ -213,7 +266,10 @@ export class Game {
 
   /** 唯讀的除錯資訊：自動化測試用來導航（不提供任何改變狀態的方法）。 */
   debugState() {
-    return { x: this.me.x, y: this.me.y, scene: this.sceneId, nearDoor: this.nearDoor?.id ?? null, nearProduct: this.nearProduct?.mealId ?? null };
+    return { x: this.me.x, y: this.me.y, scene: this.sceneId, nearDoor: this.nearDoor?.id ?? null, nearProduct: this.nearProduct?.mealId ?? null,
+      nearFriend: this.nearFriend?.name ?? null, friends: this.visibleFriends().map((f) => ({ ...f, pose: this.friendPoses.get(f.id) })),
+      bubbles: [...this.bubbles].filter(([, b]) => b.until > performance.now()), accessory: this.accessory,
+      items: this.items, remotes: [...this.remotes].map(([id, r]) => ({ id, scene: r.sceneId, accessory: r.accessory, badge: r.badge })) };
   }
 
   get scene(): SceneId {
@@ -232,6 +288,7 @@ export class Game {
     this.applySceneArt();
     this.applyView();
     this.setNearDoor(null);
+    this.setNearFriend(null);
     this.setNearProduct(null);
     this.cb.onSceneChange(this.sceneId);
     this.sendMove(true);
@@ -288,6 +345,10 @@ export class Game {
       if (t && (t.tagName === "BUTTON" || t.tagName === "A")) return; // 交給被聚焦的按鈕
       e.preventDefault();
       this.cb.onPickProduct(this.nearProduct.mealId);
+    } else if (k === "enter" && this.nearFriend && !e.repeat) {
+      if (t && (t.tagName === "BUTTON" || t.tagName === "A")) return;
+      e.preventDefault();
+      this.interact();
     } else if (k === "e" && this.nearDoor) {
       this.enterStore(this.nearDoor.id);
     } else if (k === "escape" && this.sceneId !== "street") {
@@ -318,6 +379,11 @@ export class Game {
     if (store?.id === this.nearDoor?.id) return;
     this.nearDoor = store;
     this.cb.onNearDoor(store);
+  }
+
+  private visibleFriends() {
+    if (!this.lifeEnabled || this.sceneId !== "street") return [];
+    return this.friends.slice(0, this.cssW < 600 ? 3 : 6);
   }
 
   private update(dt: number) {
@@ -370,6 +436,26 @@ export class Game {
       else if (this.exitArmed && me.moving) this.leaveStore();
     }
 
+    const friends = this.visibleFriends();
+    for (const f of friends) {
+      const pose = friendPose(f, Date.now());
+      const previous = this.friendPoses.get(f.id);
+      // 玩家靠近時停下來，偏差最多一格；NPC 沒有實體碰撞，不會擋路。
+      const players = [me, ...[...this.remotes.values()].filter((r) => r.sceneId === "street")];
+      const close = players.some((p) => Math.hypot(p.x - pose.x, p.y - pose.y) < 12);
+      this.friendPoses.set(f.id, close && previous && Math.hypot(previous.x - pose.x, previous.y - pose.y) < 8
+        ? { ...previous, moving: false } : pose);
+    }
+    this.setNearFriend(this.nearDoor ? null : friends.find((f) => {
+      const p = this.friendPoses.get(f.id)!;
+      return Math.hypot(p.x - me.x, p.y - me.y) < 28;
+    }) ?? null);
+    if (this.sceneId === "street") {
+      const collected = this.items.filter((item) => Math.hypot(item.x - me.x, item.y - me.y) < 13);
+      this.items = this.items.filter((item) => !collected.includes(item));
+      for (const item of collected) this.cb.onCollect?.(item.id);
+    }
+
     for (const r of this.remotes.values()) {
       const dx = r.tx - r.x;
       const dy = r.ty - r.y;
@@ -396,8 +482,11 @@ export class Game {
     const now = performance.now();
     if (!force && now - this.lastSent < SEND_INTERVAL_MS) return;
     this.lastSent = now;
-    this.dirty = false;
+    // 強制換場／重連後補送一次，避免撞上伺服器的移動節流而停留在舊場景。
+    this.dirty = force;
     this.cb.onMove({
+      accessory: this.accessory,
+      badge: this.social ? this.badge : undefined,
       sceneId: this.sceneId,
       x: Math.min(1, Math.max(0, this.me.x / this.world.w)),
       y: Math.min(1, Math.max(0, this.me.y / this.world.h)),
@@ -427,21 +516,28 @@ export class Game {
     if (this.art) b.drawImage(this.art.background, 0, 0);
     if (this.nearProduct) drawProductHighlight(b, this.nearProduct, performance.now());
 
-    type Draw = { id: string; a: Actor; avatarId: string; name: string; self: boolean };
+    type Draw = { id: string; a: Actor; avatarId: string; name: string; self: boolean; friend?: TownFriend; accessory?: Accessory; badge?: AchievementId };
     const draws: Draw[] = [];
     const meMember = this.members.get(this.meId);
-    draws.push({ id: this.meId, a: this.me, avatarId: meMember?.avatarId ?? "avatar-blue", name: meMember?.nickname ?? "我", self: true });
+    draws.push({ id: this.meId, a: this.me, avatarId: meMember?.avatarId ?? "avatar-blue", name: meMember?.nickname ?? "我", self: true, accessory: this.accessory, badge: this.social ? this.badge : undefined });
     for (const [id, r] of this.remotes) {
       if (r.sceneId !== this.sceneId) continue;
       const m = this.members.get(id);
-      draws.push({ id, a: r, avatarId: m?.avatarId ?? "avatar-blue", name: m?.nickname ?? "…", self: false });
+      draws.push({ id, a: r, avatarId: m?.avatarId ?? "avatar-blue", name: m?.nickname ?? "…", self: false, accessory: r.accessory, badge: this.social ? r.badge : undefined });
+    }
+    for (const f of this.visibleFriends()) {
+      const p = this.friendPoses.get(f.id);
+      if (p) draws.push({ id: f.id, a: p, avatarId: f.avatar, name: f.name, self: false, friend: f });
     }
     draws.sort((p, q) => p.a.y - q.a.y);
     for (const d of draws) {
       b.fillStyle = "#00000030";
       b.fillRect(Math.round(d.a.x - 5), Math.round(d.a.y - 1), 10, 2);
-      const sprite = characterFrames(d.avatarId)[d.a.dir][this.frameOf(d.a)];
-      b.drawImage(sprite, Math.round(d.a.x - CHAR_W / 2), Math.round(d.a.y - CHAR_H + 1));
+      const animal = d.friend && d.friend.kind !== "villager";
+      const sprite = animal ? animalFrame(d.friend!.kind as "cat" | "dog" | "bird", d.a.dir, this.frameOf(d.a), d.friend!.name === "小芝麻")
+        : characterFrames(d.avatarId)[d.a.dir][this.frameOf(d.a)];
+      b.drawImage(sprite, Math.round(d.a.x - CHAR_W / 2), Math.round(d.a.y - (animal ? 21 : CHAR_H) + 1));
+      if (d.accessory && d.accessory !== "none") drawAccessory(b, d.a.x, d.a.y, d.a.dir, d.accessory);
     }
     if (this.art?.foreground) b.drawImage(this.art.foreground, 0, 0);
 
@@ -462,6 +558,17 @@ export class Game {
     d.imageSmoothingEnabled = false;
     d.drawImage(this.buffer, 0, 0, v.w * k, v.h * k);
     d.setTransform(1, 0, 0, 1, -cam.x * k, -cam.y * k); // 文字以「世界座標 × k」繪製
+
+    if (this.sceneId === "street") {
+      d.font = `${10 * k}px sans-serif`;
+      d.textAlign = "center";
+      for (const item of this.items) {
+        const bob = Math.sin(performance.now() / 350 + item.x) * 1.5;
+        d.fillStyle = "#fff3bf";
+        d.beginPath(); d.ellipse(item.x * k, (item.y + 1) * k, 5 * k, 2 * k, 0, 0, Math.PI * 2); d.fill();
+        d.fillText(item.icon, item.x * k, (item.y - 4 + bob) * k);
+      }
+    }
 
     // 高解析度文字：招牌、名牌、泡泡
     d.textAlign = "center";
@@ -538,13 +645,16 @@ export class Game {
     const now = performance.now();
     for (const dr of draws) {
       const cx = dr.a.x * k;
+      const friendNear = dr.friend?.id === this.nearFriend?.id;
+      if (dr.friend && !friendNear && !this.bubbles.has(dr.id)) continue;
+      const name = `${dr.badge ? ACHIEVEMENTS.find((a) => a.id === dr.badge)?.icon ?? "" : ""}${dr.name}`;
       const top = (dr.a.y + 2) * k;
       d.font = `600 ${5 * k}px "PingFang TC","Noto Sans TC",sans-serif`;
-      const w = d.measureText(dr.name).width + 4 * k;
+      const w = d.measureText(name).width + 4 * k;
       d.fillStyle = dr.self ? "#d9483ecc" : "#3b2a20bb";
       roundRect(d, cx - w / 2, top, w, 7 * k, 2 * k);
       d.fillStyle = "#fff";
-      d.fillText(dr.name, cx, top + 3.6 * k);
+      d.fillText(name, cx, top + 3.6 * k);
 
       const bub = this.bubbles.get(dr.id);
       if (bub && bub.until > now) {
@@ -635,4 +745,21 @@ function fitText(d: CanvasRenderingContext2D, text: string, maxW: number, size: 
   const chars = [...text];
   while (chars.length > 1 && d.measureText(chars.join("") + "…").width > maxW) chars.pop();
   return { text: chars.join("") + "…", font: d.font };
+}
+
+function drawAccessory(c: CanvasRenderingContext2D, x: number, y: number, dir: Direction, kind: Accessory) {
+  x = Math.round(x); y = Math.round(y) - CHAR_H + 3;
+  if (kind === "cap") {
+    c.fillStyle = "#314e70"; c.fillRect(x - 7, y - 1, 14, 4);
+    c.fillStyle = "#72bad0"; c.fillRect(x - 6, y - 3, 12, 3);
+    c.fillStyle = "#e9d789"; c.fillRect(x + (dir === "left" ? -10 : dir === "right" ? 3 : -8), y + 2, dir === "up" ? 14 : 17, 2);
+  } else if (kind === "leaf") {
+    c.fillStyle = "#365f37"; c.fillRect(x - 5, y - 2, 11, 3);
+    c.fillStyle = "#9bc65c"; c.fillRect(x - 3, y - 5, 7, 3);
+    c.fillStyle = "#d6e891"; c.fillRect(x, y - 6, 3, 4);
+  } else {
+    const side = dir === "left" ? -7 : 6;
+    c.fillStyle = "#f4a4b5"; c.fillRect(x + side - 3, y, 7, 3); c.fillRect(x + side - 1, y - 2, 3, 7);
+    c.fillStyle = "#ffe29a"; c.fillRect(x + side - 1, y, 3, 3);
+  }
 }

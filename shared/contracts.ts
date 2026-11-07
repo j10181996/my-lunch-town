@@ -65,6 +65,7 @@ export interface StoreTotal {
   totalTwd: number;
 }
 export interface RoomSnapshot {
+  socialEnabled?: boolean;
   room: Room;
   me: Member;
   members: Array<Pick<Member, "id" | "nickname" | "avatarId">>;
@@ -114,6 +115,8 @@ export interface ApiError {
   requestId?: string;
 }
 export interface PlayerPresence {
+  accessory?: "none" | "flower" | "leaf" | "cap";
+  badge?: "visit" | "order" | "friend" | "collect";
   memberId: Id;
   sceneId: SceneId;
   x: number; // 0..1，場景內邏輯座標
