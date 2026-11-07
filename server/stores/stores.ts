@@ -34,8 +34,8 @@ interface StoreRow {
 
 const LOT_INDEXES = LOTS.map((l) => l.index);
 
-export function getTown(db: Db): TownLot[] {
-  const rows = db.prepare("SELECT * FROM stores").all() as unknown as StoreRow[];
+export async function getTown(db: Db): Promise<TownLot[]> {
+  const { results: rows } = await db.prepare("SELECT * FROM stores").all<StoreRow>();
   return LOTS.map((lot) => {
     const s = rows.find((r) => r.lot_index === lot.index);
     return {
@@ -45,15 +45,15 @@ export function getTown(db: Db): TownLot[] {
   });
 }
 
-function loadProfile(db: Db, storeId: string): StoreProfile {
-  const s = db.prepare("SELECT * FROM stores WHERE id = ?").get(storeId) as StoreRow | undefined;
+async function loadProfile(db: Db, storeId: string): Promise<StoreProfile> {
+  const s = await db.prepare("SELECT * FROM stores WHERE id = ?").bind(storeId).first<StoreRow>();
   if (!s) throw storeNotFound();
-  const meals = db
+  const { results: meals } = await db
     .prepare("SELECT * FROM meals WHERE store_id = ? ORDER BY sort_order, id")
-    .all(storeId) as Array<{ id: string; name: string; price_twd: number; image_key: string; available: number; tags_json: string; sort_order: number; options_json: string | null }>;
-  const active = db
+    .bind(storeId).all<{ id: string; name: string; price_twd: number; image_key: string; available: number; tags_json: string; sort_order: number; options_json: string | null }>();
+  const active = (await db
     .prepare("SELECT COUNT(*) AS n FROM room_stores rs JOIN rooms r ON r.id = rs.room_id WHERE rs.store_id = ? AND r.status = 'open'")
-    .get(storeId) as { n: number };
+    .bind(storeId).first<{ n: number }>())!;
   return {
     id: s.id,
     address: s.address ?? undefined,
@@ -82,8 +82,8 @@ function loadProfile(db: Db, storeId: string): StoreProfile {
 }
 
 /** 店家寫入權限：僅限擁有該店的工作階段。 */
-export function requireOwner(db: Db, sessionId: string, storeId: string): StoreRow {
-  const s = db.prepare("SELECT * FROM stores WHERE id = ?").get(storeId) as StoreRow | undefined;
+export async function requireOwner(db: Db, sessionId: string, storeId: string): Promise<StoreRow> {
+  const s = await db.prepare("SELECT * FROM stores WHERE id = ?").bind(storeId).first<StoreRow>();
   if (!s) throw storeNotFound();
   if (s.owner_session_id !== sessionId) throw err.notAllowed("這不是你的店；可用管理碼認領");
   return s;
@@ -94,113 +94,110 @@ function storeNotFound() {
   return new AppError("INVALID_INPUT", 404, "找不到這家店");
 }
 
-function lotTaken(db: Db, lotIndex: number, exceptStoreId?: string) {
-  const row = db.prepare("SELECT id FROM stores WHERE lot_index = ?").get(lotIndex) as { id: string } | undefined;
+async function lotTaken(db: Db, lotIndex: number, exceptStoreId?: string) {
+  const row = await db.prepare("SELECT id FROM stores WHERE lot_index = ?").bind(lotIndex).first<{ id: string }>();
   return !!row && row.id !== exceptStoreId;
 }
 
-export function createStore(db: Db, sessionId: string, input: CreateStoreInput): CreateStoreResult {
+export async function createStore(db: Db, sessionId: string, input: CreateStoreInput): Promise<CreateStoreResult> {
   const name = text(input?.name, "店名", 1, 12);
   const styleKey = oneOf(input?.styleKey, "店面風格", STYLE_KEYS);
   const lotIndex = oneOf(String(input?.lotIndex), "地段", LOT_INDEXES.map(String));
   const reqId = checkRequestId(input?.requestId);
   const digest = `${name}|${styleKey}|${lotIndex}`;
 
-  return withWriteTx(db, () => {
-    const prev = db
+  return withWriteTx(db, async () => {
+    const prev = await db
       .prepare("SELECT payload_digest, result_json FROM processed_requests WHERE scope = 'create-store' AND actor_id = ? AND request_id = ?")
-      .get(sessionId, reqId) as { payload_digest: string; result_json: string } | undefined;
+      .bind(sessionId, reqId).first<{ payload_digest: string; result_json: string }>();
     if (prev) {
       if (prev.payload_digest !== digest) throw err.conflict();
       const storeId = (JSON.parse(prev.result_json) as { storeId: string }).storeId;
-      return { adminPath: `/shop/${storeId}`, profile: loadProfile(db, storeId), manageKey: null };
+      return { adminPath: `/shop/${storeId}`, profile: await loadProfile(db, storeId), manageKey: null };
     }
-    if (lotTaken(db, Number(lotIndex))) throw err.invalid("這個地段已經有店了，請換一格");
+    if (await lotTaken(db, Number(lotIndex))) throw err.invalid("這個地段已經有店了，請換一格");
 
     const id = `store-${randomId(8)}`;
     const manageKey = `${randomId(4)}-${randomId(4)}-${randomId(4)}`;
-    db.prepare(
+    await db.prepare(
       "INSERT INTO stores (id, name, style_key, lot_index, status, owner_session_id, manage_key_hash, is_sample, updated_at) VALUES (?, ?, ?, ?, 'resting', ?, ?, 0, ?)",
-    ).run(id, name, styleKey, Number(lotIndex), sessionId, hashKey(manageKey), Date.now());
-    db.prepare(
+    ).bind(id, name, styleKey, Number(lotIndex), sessionId, hashKey(manageKey), Date.now()).run();
+    await db.prepare(
       "INSERT INTO processed_requests (scope, actor_id, request_id, payload_digest, result_json) VALUES ('create-store', ?, ?, ?, ?)",
-    ).run(sessionId, reqId, digest, JSON.stringify({ storeId: id }));
-    return { adminPath: `/shop/${id}`, profile: loadProfile(db, id), manageKey };
+    ).bind(sessionId, reqId, digest, JSON.stringify({ storeId: id })).run();
+    return { adminPath: `/shop/${id}`, profile: await loadProfile(db, id), manageKey };
   });
 }
 
-export function myStores(db: Db, sessionId: string): StoreProfile[] {
-  const rows = db.prepare("SELECT id FROM stores WHERE owner_session_id = ? ORDER BY lot_index").all(sessionId) as Array<{ id: string }>;
-  return rows.map((r) => loadProfile(db, r.id));
+export async function myStores(db: Db, sessionId: string): Promise<StoreProfile[]> {
+  const { results: rows } = await db.prepare("SELECT id FROM stores WHERE owner_session_id = ? ORDER BY lot_index").bind(sessionId).all<{ id: string }>();
+  const out: StoreProfile[] = [];
+  for (const r of rows) out.push(await loadProfile(db, r.id));
+  return out;
 }
 
 /**
  * 用管理碼認領店家。demoKey（展示用後台碼）相符時，一次認領所有種子店家
  * （管理碼仍是 demo-{storeId} 的店；使用者自己開的店不受影響），回傳地段最前面的一家。
  */
-export function claimStore(db: Db, sessionId: string, manageKey: unknown, demoKey?: string): StoreProfile {
+export async function claimStore(db: Db, sessionId: string, manageKey: unknown, demoKey?: string): Promise<StoreProfile> {
   const key = text(manageKey, "管理碼", 4, 64);
-  return withWriteTx(db, () => {
+  return withWriteTx(db, async () => {
     if (demoKey && key === demoKey) {
       const seeded = (
-        db.prepare("SELECT id, manage_key_hash FROM stores ORDER BY lot_index").all() as Array<{
+        await db.prepare("SELECT id, manage_key_hash FROM stores ORDER BY lot_index").all<{
           id: string;
           manage_key_hash: string | null;
-        }>
-      ).filter((s) => s.manage_key_hash === hashKey(`demo-${s.id}`));
+        }>()
+      ).results.filter((s) => s.manage_key_hash === hashKey(`demo-${s.id}`));
       if (seeded.length === 0) throw err.notAllowed("目前沒有可用展示碼認領的店家");
       const claim = db.prepare("UPDATE stores SET owner_session_id = ? WHERE id = ?");
-      for (const s of seeded) claim.run(sessionId, s.id);
+      for (const s of seeded) await claim.bind(sessionId, s.id).run();
       return loadProfile(db, seeded[0].id);
     }
-    const row = db.prepare("SELECT id FROM stores WHERE manage_key_hash = ?").get(hashKey(key)) as { id: string } | undefined;
+    const row = await db.prepare("SELECT id FROM stores WHERE manage_key_hash = ?").bind(hashKey(key)).first<{ id: string }>();
     if (!row) throw err.notAllowed("管理碼不正確");
-    db.prepare("UPDATE stores SET owner_session_id = ? WHERE id = ?").run(sessionId, row.id);
+    await db.prepare("UPDATE stores SET owner_session_id = ? WHERE id = ?").bind(sessionId, row.id).run();
     return loadProfile(db, row.id);
   });
 }
 
-export function getStore(db: Db, sessionId: string, storeId: string): StoreProfile {
-  requireOwner(db, sessionId, storeId);
+export async function getStore(db: Db, sessionId: string, storeId: string): Promise<StoreProfile> {
+  await requireOwner(db, sessionId, storeId);
   return loadProfile(db, storeId);
 }
 
-export function updateStore(db: Db, sessionId: string, storeId: string, input: UpdateStoreInput): StoreProfile {
-  return withWriteTx(db, () => {
-    const s = requireOwner(db, sessionId, storeId);
+export async function updateStore(db: Db, sessionId: string, storeId: string, input: UpdateStoreInput): Promise<StoreProfile> {
+  return withWriteTx(db, async () => {
+    const s = await requireOwner(db, sessionId, storeId);
     const name = input?.name !== undefined ? text(input.name, "店名", 1, 12) : s.name;
     const styleKey = input?.styleKey !== undefined ? oneOf(input.styleKey, "店面風格", STYLE_KEYS) : s.style_key;
     const lotIndex =
       input?.lotIndex !== undefined ? Number(oneOf(String(input.lotIndex), "地段", LOT_INDEXES.map(String))) : s.lot_index;
-    if (lotTaken(db, lotIndex, storeId)) throw err.invalid("這個地段已經有店了，請換一格");
-    db.prepare("UPDATE stores SET name = ?, style_key = ?, lot_index = ?, updated_at = ? WHERE id = ?").run(
-      name,
-      styleKey,
-      lotIndex,
-      Date.now(),
-      storeId,
-    );
+    if (await lotTaken(db, lotIndex, storeId)) throw err.invalid("這個地段已經有店了，請換一格");
+    await db.prepare("UPDATE stores SET name = ?, style_key = ?, lot_index = ?, updated_at = ? WHERE id = ?")
+      .bind(name, styleKey, lotIndex, Date.now(), storeId).run();
     return loadProfile(db, storeId);
   });
 }
 
-function countAvailable(db: Db, storeId: string) {
-  return (db.prepare("SELECT COUNT(*) AS n FROM meals WHERE store_id = ? AND available = 1").get(storeId) as { n: number }).n;
+async function countAvailable(db: Db, storeId: string) {
+  return (await db.prepare("SELECT COUNT(*) AS n FROM meals WHERE store_id = ? AND available = 1").bind(storeId).first<{ n: number }>())!.n;
 }
 
 /** 沒有供應中餐點時自動休息，避免空店出現在新開的團。 */
-function autoRestIfEmpty(db: Db, storeId: string) {
-  if (countAvailable(db, storeId) === 0) {
-    db.prepare("UPDATE stores SET status = 'resting' WHERE id = ?").run(storeId);
+async function autoRestIfEmpty(db: Db, storeId: string) {
+  if (await countAvailable(db, storeId) === 0) {
+    await db.prepare("UPDATE stores SET status = 'resting' WHERE id = ?").bind(storeId).run();
   }
 }
 
-export function setStatus(db: Db, sessionId: string, storeId: string, status: unknown): StoreProfile {
+export async function setStatus(db: Db, sessionId: string, storeId: string, status: unknown): Promise<StoreProfile> {
   const next = oneOf(status, "營業狀態", ["open", "resting"] as const);
-  return withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
-    if (next === "open" && countAvailable(db, storeId) === 0) throw err.invalid("至少要有一道供應中的餐點才能開門營業");
-    db.prepare("UPDATE stores SET status = ?, updated_at = ? WHERE id = ?").run(next, Date.now(), storeId);
+  return withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
+    if (next === "open" && await countAvailable(db, storeId) === 0) throw err.invalid("至少要有一道供應中的餐點才能開門營業");
+    await db.prepare("UPDATE stores SET status = ?, updated_at = ? WHERE id = ?").bind(next, Date.now(), storeId).run();
     return loadProfile(db, storeId);
   });
 }
@@ -233,35 +230,34 @@ function optionsJson(options: MealInput["options"]): string | null {
   return options && options.length > 0 ? JSON.stringify(options) : null;
 }
 
-export function addMeal(db: Db, sessionId: string, storeId: string, input: MealInput): StoreProfile {
+export async function addMeal(db: Db, sessionId: string, storeId: string, input: MealInput): Promise<StoreProfile> {
   const meal = parseMeal(input ?? {});
-  return withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
-    meal.imageAssetKey = resolveMealImage(db, storeId, meal.imageAssetKey);
-    const n = (db.prepare("SELECT COUNT(*) AS n FROM meals WHERE store_id = ?").get(storeId) as { n: number }).n;
+  return withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
+    meal.imageAssetKey = await resolveMealImage(db, storeId, meal.imageAssetKey);
+    const n = (await db.prepare("SELECT COUNT(*) AS n FROM meals WHERE store_id = ?").bind(storeId).first<{ n: number }>())!.n;
     if (n >= 12) throw err.invalid("每家店最多 12 道餐點");
-    const max = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM meals WHERE store_id = ?").get(storeId) as { m: number };
-    db.prepare(
+    const max = (await db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM meals WHERE store_id = ?").bind(storeId).first<{ m: number }>())!;
+    await db.prepare(
       "INSERT INTO meals (id, store_id, name, price_twd, image_key, available, tags_json, sort_order, options_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(`meal-${randomId(8)}`, storeId, meal.name, meal.priceTwd, meal.imageAssetKey, meal.available ? 1 : 0, JSON.stringify(meal.tags), max.m + 1,
-      optionsJson(meal.options));
-    autoRestIfEmpty(db, storeId);
+    ).bind(`meal-${randomId(8)}`, storeId, meal.name, meal.priceTwd, meal.imageAssetKey, meal.available ? 1 : 0, JSON.stringify(meal.tags), max.m + 1,
+      optionsJson(meal.options)).run();
+    await autoRestIfEmpty(db, storeId);
     return loadProfile(db, storeId);
   });
 }
 
-function requireMeal(db: Db, storeId: string, mealId: string) {
-  const m = db.prepare("SELECT * FROM meals WHERE id = ? AND store_id = ?").get(mealId, storeId) as
-    | { name: string; price_twd: number; image_key: string; available: number; tags_json: string; sort_order: number; options_json: string | null }
-    | undefined;
+async function requireMeal(db: Db, storeId: string, mealId: string) {
+  const m = await db.prepare("SELECT * FROM meals WHERE id = ? AND store_id = ?").bind(mealId, storeId)
+    .first<{ name: string; price_twd: number; image_key: string; available: number; tags_json: string; sort_order: number; options_json: string | null }>();
   if (!m) throw err.mealNotFound();
   return m;
 }
 
-export function updateMeal(db: Db, sessionId: string, storeId: string, mealId: string, input: Partial<MealInput>): StoreProfile {
-  return withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
-    const cur = requireMeal(db, storeId, mealId);
+export async function updateMeal(db: Db, sessionId: string, storeId: string, mealId: string, input: Partial<MealInput>): Promise<StoreProfile> {
+  return withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
+    const cur = await requireMeal(db, storeId, mealId);
     const next = parseMeal(input ?? {}, {
       name: cur.name,
       priceTwd: cur.price_twd,
@@ -270,60 +266,53 @@ export function updateMeal(db: Db, sessionId: string, storeId: string, mealId: s
       tags: JSON.parse(cur.tags_json) as string[],
       options: parseOptionGroups(cur.options_json),
     });
-    next.imageAssetKey = resolveMealImage(db, storeId, next.imageAssetKey);
-    db.prepare("UPDATE meals SET name = ?, price_twd = ?, image_key = ?, available = ?, tags_json = ?, options_json = ? WHERE id = ?").run(
-      next.name,
-      next.priceTwd,
-      next.imageAssetKey,
-      next.available ? 1 : 0,
-      JSON.stringify(next.tags),
-      optionsJson(next.options),
-      mealId,
-    );
-    autoRestIfEmpty(db, storeId);
+    next.imageAssetKey = await resolveMealImage(db, storeId, next.imageAssetKey);
+    await db.prepare("UPDATE meals SET name = ?, price_twd = ?, image_key = ?, available = ?, tags_json = ?, options_json = ? WHERE id = ?")
+      .bind(next.name, next.priceTwd, next.imageAssetKey, next.available ? 1 : 0, JSON.stringify(next.tags), optionsJson(next.options), mealId)
+      .run();
+    await autoRestIfEmpty(db, storeId);
     return loadProfile(db, storeId);
   });
 }
 
-export function moveMeal(db: Db, sessionId: string, storeId: string, mealId: string, direction: unknown): StoreProfile {
+export async function moveMeal(db: Db, sessionId: string, storeId: string, mealId: string, direction: unknown): Promise<StoreProfile> {
   const dir = oneOf(direction, "方向", ["up", "down"] as const);
-  return withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
-    requireMeal(db, storeId, mealId);
-    const ids = (db.prepare("SELECT id FROM meals WHERE store_id = ? ORDER BY sort_order, id").all(storeId) as Array<{ id: string }>).map(
-      (r) => r.id,
-    );
+  return withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
+    await requireMeal(db, storeId, mealId);
+    const ids = (await db.prepare("SELECT id FROM meals WHERE store_id = ? ORDER BY sort_order, id").bind(storeId).all<{ id: string }>())
+      .results.map((r) => r.id);
     const i = ids.indexOf(mealId);
     const j = dir === "up" ? i - 1 : i + 1;
     if (j >= 0 && j < ids.length) [ids[i], ids[j]] = [ids[j], ids[i]];
     const upd = db.prepare("UPDATE meals SET sort_order = ? WHERE id = ?");
-    ids.forEach((id, k) => upd.run(k, id));
+    for (const [k, id] of ids.entries()) await upd.bind(k, id).run();
     return loadProfile(db, storeId);
   });
 }
 
-export function deleteMeal(db: Db, sessionId: string, storeId: string, mealId: string): StoreProfile {
-  return withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
-    requireMeal(db, storeId, mealId);
+export async function deleteMeal(db: Db, sessionId: string, storeId: string, mealId: string): Promise<StoreProfile> {
+  return withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
+    await requireMeal(db, storeId, mealId);
     // 進行中的團使用 room_meals 凍結副本，刪除主檔不影響既有訂單
-    db.prepare("DELETE FROM meals WHERE id = ?").run(mealId);
-    autoRestIfEmpty(db, storeId);
+    await db.prepare("DELETE FROM meals WHERE id = ?").bind(mealId).run();
+    await autoRestIfEmpty(db, storeId);
     return loadProfile(db, storeId);
   });
 }
 
-export function setDelivery(db: Db, sessionId: string, storeId: string, input: unknown): StoreProfile {
-  return withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
+export async function setDelivery(db: Db, sessionId: string, storeId: string, input: unknown): Promise<StoreProfile> {
+  return withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
     let rules;
     try {
       rules = validateDeliveryRules(input);
     } catch (e) {
       throw err.invalid((e as Error).message);
     }
-    db.prepare("UPDATE stores SET delivery_json = ?, updated_at = ? WHERE id = ?")
-      .run(JSON.stringify(rules), Date.now(), storeId);
+    await db.prepare("UPDATE stores SET delivery_json = ?, updated_at = ? WHERE id = ?")
+      .bind(JSON.stringify(rules), Date.now(), storeId).run();
     return loadProfile(db, storeId);
   });
 }
@@ -332,9 +321,9 @@ export function setDelivery(db: Db, sessionId: string, storeId: string, input: u
  * body：{ location: { lat, lng } | null, address?: string }；null 清除位置。
  * 帶 address 時一併更新店家地址。修改只套用到之後開的團。
  */
-export function setLocation(db: Db, sessionId: string, storeId: string, input: unknown): StoreProfile {
-  return withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
+export async function setLocation(db: Db, sessionId: string, storeId: string, input: unknown): Promise<StoreProfile> {
+  return withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
     if (!input || typeof input !== "object" || !("location" in input)) throw err.invalid("請提供店家位置");
     const body = input as { location: unknown; address?: unknown };
     let location = null;
@@ -342,20 +331,20 @@ export function setLocation(db: Db, sessionId: string, storeId: string, input: u
       try { location = validateGeoPoint(body.location, "店家位置"); } catch (e) { throw err.invalid((e as Error).message); }
     }
     const address = body.address === undefined ? undefined : text(body.address, "店家地址", 4, 100);
-    db.prepare("UPDATE stores SET lat = ?, lng = ?, updated_at = ? WHERE id = ?")
-      .run(location?.lat ?? null, location?.lng ?? null, Date.now(), storeId);
-    if (address !== undefined) db.prepare("UPDATE stores SET address = ? WHERE id = ?").run(address, storeId);
+    await db.prepare("UPDATE stores SET lat = ?, lng = ?, updated_at = ? WHERE id = ?")
+      .bind(location?.lat ?? null, location?.lng ?? null, Date.now(), storeId).run();
+    if (address !== undefined) await db.prepare("UPDATE stores SET address = ? WHERE id = ?").bind(address, storeId).run();
     return loadProfile(db, storeId);
   });
 }
 
-export function setHours(db: Db, sessionId: string, storeId: string, input: unknown): StoreProfile {
-  return withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
+export async function setHours(db: Db, sessionId: string, storeId: string, input: unknown): Promise<StoreProfile> {
+  return withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
     let hours;
     try { hours = validateStoreHours(input); } catch (e) { throw err.invalid((e as Error).message); }
-    db.prepare("UPDATE stores SET hours_json = ?, updated_at = ? WHERE id = ?")
-      .run(hours ? JSON.stringify(hours) : null, Date.now(), storeId);
+    await db.prepare("UPDATE stores SET hours_json = ?, updated_at = ? WHERE id = ?")
+      .bind(hours ? JSON.stringify(hours) : null, Date.now(), storeId).run();
     return loadProfile(db, storeId);
   });
 }

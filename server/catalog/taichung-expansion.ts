@@ -1,7 +1,7 @@
 import seed from "../../shared/catalog/stores.taichung.json";
 import { LOTS } from "../../shared/town";
-import type { Db } from "../db";
-import { hashKey, withWriteTx } from "../db-shared";
+import type { SyncDb as Db } from "../db-shared";
+import { hashKey, withSyncTx } from "../db-shared";
 
 const ORIGINAL_IDS = ["store-chingfan", "store-shanliang", "store-yiriyiwei", "store-potato", "store-haritts", "store-zhuangzhuang"];
 export const EXPANSION_IDS = ["store-youfan", "store-picnicday", "store-zhuyi", "store-musi", "store-steal-flavor", "store-roasted-time", "store-healthy-daily", "store-meetzen"];
@@ -15,7 +15,7 @@ export function migrateTaichungExpansionSchema(db: Pick<Db, "prepare" | "exec">)
 
 /** 保留現有店家、認領、菜單與團快照；僅新增本批尚未匯入的種子店。 */
 export function migrateTaichungExpansion(db: Db) {
-  withWriteTx(db, () => {
+  withSyncTx(db, () => {
     migrateTaichungExpansionSchema(db);
     // 虛構種子及純自建店家環境不混入真實店家。
     if (!ORIGINAL_IDS.some((id) => db.prepare("SELECT 1 FROM stores WHERE id = ? AND is_sample = 0").get(id))) return;

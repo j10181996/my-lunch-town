@@ -39,17 +39,19 @@ web/state/useRoom.ts ─ roomGateway（web/adapters/http.ts）
 
 `server/api.ts` 的 Hono app `api` 是唯一的路由表。兩個執行環境都先以 `readApiRequest` 做請求前處理（外站 Origin 的寫入回 403、取得或建立 `lt_sid` 工作階段、讀取最多 64 KB 的 JSON body），再呼叫 `api.fetch(request, { ctx, sid, body, demoKey })`；Worker 在快照交易內呼叫，回應成功的寫入才寫回 D1。handler 只從 `c.env` 取得 `ctx`、`sid`、`body`，不可自行讀 request body。錯誤由 `errorResponse` 轉成 `{ code, message }`；API 回應一律帶 `cache-control: private, no-store` 與 `nosniff`。
 
-領域模組（`server/rooms`、`server/orders`、`server/stores`）只透過 `Ctx`（`server/context.ts`）取得 `db` 與 `events`，所有讀寫都是同步的 `db.prepare(...).get/all/run` 與 `db.exec`。這個最小介面是兩種環境能共用程式的前提。
+領域模組（`server/rooms`、`server/orders`、`server/stores`）只透過 `Ctx`（`server/context.ts`）取得 `db` 與 `events`，所有讀寫都經過 `server/db-shared.ts` 的非同步 `Db` 介面，形狀與 Cloudflare D1 相同：`await db.prepare(sql).bind(...).first()`（沒有資料回 `null`）、`.all()`（回 `{ results }`）、`.run()`（回 `{ meta: { changes } }`），以及全部成功或全部回滾的 `db.batch([...])`。這個最小介面是兩種環境能共用程式的前提，也讓之後改接 D1 正式資料表（#101 第 4 階段）時領域模組不必再改。
+
+Node 的實作是 `server/db.ts` 的 `asyncDb(raw)`：把同步的 `node:sqlite` 連線包成 `Db`，並以 `AsyncLocalStorage` 排程交易。同一條連線上，交易依呼叫順序獨佔執行，交易外的查詢要等進行中的交易結束，所以不會讀到尚未提交的資料。遷移與種子匯入在啟動時執行，仍使用同步的 `SyncDb` 與 `withSyncTx`。
 
 ### 資料庫替換
 
-`scripts/build-worker.mjs` 用 esbuild 外掛把所有解析到 `server/db.ts` 的 import 換成 `worker/db.ts`。後者以 sql.js 模擬 `node:sqlite` 的同步介面，並從 D1 `app_state` 讀出整個 SQLite image。
+`scripts/build-worker.mjs` 用 esbuild 外掛把所有解析到 `server/db.ts` 的 import 換成 `worker/db.ts`。後者從 D1 `app_state` 讀出整個 SQLite image，以 sql.js 開啟，提供同步的 `sync`（遷移與 `/live` 的唯讀查詢使用）與包裝後的非同步 `db`（共用的 api 使用）。每個請求各自開一份 image，不需要交易排程。
 
 由此帶出幾條限制：
 
 - 領域模組要以相對路徑 `../db` 匯入資料庫相關符號，替換才會生效。錯誤類別與交易輔助（`AppError`、`err`、`withWriteTx`、`hashKey`）放在 `server/db-shared.ts`，兩邊共用。
 - 領域模組不能用 `node:fs`、`node:path` 等 Worker 沒有的 API。`node:crypto` 例外，Worker 以 `nodejs_compat` 提供，`server/util.ts` 的 `randomId` 依賴它。
-- 只能用 `db.prepare` 的 `get`、`all`、`run`（`run` 只回傳 `changes`）與 `db.exec`；其他 `node:sqlite` 功能 sql.js 轉接層沒有實作。
+- 領域模組只能用 `Db` 介面（`prepare().bind().first/all/run`、`batch`、`withWriteTx`），不能直接使用 `node:sqlite` 或 sql.js。
 
 ### Sites 的寫入模型
 
@@ -73,7 +75,7 @@ Worker 每個請求都把整個 image 載入 sql.js，執行領域函式後匯�
 
 ### 交易、版本與去重
 
-會改變團單的寫入都包在 `withWriteTx`（`BEGIN IMMEDIATE`）內，成功後呼叫 `bumpRevision` 遞增 `rooms.revision`，提交後才觸發 `ctx.events`。前端以 revision 判斷是否需要重抓 snapshot；角色移動不遞增 revision。
+會改變團單的寫入都包在 `await withWriteTx(db, async () => ...)`（`BEGIN IMMEDIATE`）內，成功後呼叫 `bumpRevision` 遞增 `rooms.revision`，提交後才觸發 `ctx.events`。身分與狀態檢查放在交易內；交易依呼叫順序排隊，交易前先 `await` 查詢會讓先到的請求排到後面。#101 第 3b 階段會把互動式交易改成 D1 可用的 `batch` 加條件式寫入。前端以 revision 判斷是否需要重抓 snapshot；角色移動不遞增 revision。
 
 可能被重送的寫入（開團、+1/-1、開店）帶 `requestId`，結果存在 `processed_requests`，主鍵是 `(scope, actor_id, request_id)`。相同 requestId 回傳上次結果；內容不同則回 `REQUEST_ID_CONFLICT`。去重檢查刻意排在「已收單」檢查之前，讓收單前送出、收單後才重送的請求仍拿到原本的成功結果。前端遇到 `NETWORK` 或 `RETRY_LATER` 會以同一個 requestId 重試（`web/api.ts` 的 `ApiError.retryable`）。
 
@@ -118,7 +120,7 @@ NPC、收藏與換裝（M4）目前只在前端，收藏存在 localStorage；�
 
 ### 新增 API
 
-1. 在對應領域模組寫函式，簽名沿用 `(ctx 或 db, sessionId, ...params, body)`，先做身分檢查，寫入包在 `withWriteTx`。
+1. 在對應領域模組寫 `async` 函式，簽名沿用 `(ctx 或 db, sessionId, ...params, body)`，寫入包在 `withWriteTx`，身分檢查放在交易內。
 2. 型別加到 `shared/contracts.ts`。
 3. 在 `server/api.ts` 註冊路由，回傳 `c.json(...)`。
 4. 在 `web/adapters/http.ts` 的 gateway 加上對應方法。
@@ -158,6 +160,6 @@ Node 與 Sites 的即時通道是兩套實作：Node 在 `server/realtime/realti
 | `scripts/smoke-bag-quests.mjs` | 任務導引後鍵盤／真觸控移動、背包獨立入口與窄版捲動 | 開發伺服器 + Chrome |
 | `scripts/smoke-mobile.mjs` | 手機尺寸與真觸控事件：搖桿走路、觸控點餐、面板收合 | 開發伺服器 + Chrome |
 
-`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`regulars.test.ts` 是常客紀錄、每日試吃與成就徽章清單；`likes.test.ts` 是給店家按讚的權限、去重與店家後台統計；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限；`meal-options.test.ts` 是餐點選項與備註的設定、計價、匯出、去重、並發與遷移；`migrations.test.ts` 是版本化遷移：基線與舊庫升級一致、只套用一次、失敗回滾。`http.test.ts` 是共用的請求處理：工作階段 Cookie、Origin 檢查、body 上限與格式、快取標頭、404。
+`server/test/` 各檔範圍：`api.test.ts` 是團單、計價、去重、收單與店家訂單主流程；`delivery.test.ts` 是外送規則與距離；`payment.test.ts` 是人工收款狀態與隱私；`social.test.ts` 是表情頻率與社交開關；`shopkeeper.test.ts` 是店內店主台詞的情境與輪替；`owner-calls.test.ts` 是團主在截止前與收單時的喊話；`order-progress.test.ts` 是出餐進度的店門口演出、店主台詞與團主喊話；`regulars.test.ts` 是常客紀錄、每日試吃與成就徽章清單；`likes.test.ts` 是給店家按讚的權限、去重與店家後台統計；`store-hours.test.ts` 是台灣時區的營業時段、截止時間與開團篩選；`store-list.test.ts` 是管理者店家清單的公開欄位與權限；`meal-options.test.ts` 是餐點選項與備註的設定、計價、匯出、去重、並發與遷移；`migrations.test.ts` 是版本化遷移：基線與舊庫升級一致、只套用一次、失敗回滾。`http.test.ts` 是共用的請求處理：工作階段 Cookie、Origin 檢查、body 上限與格式、快取標頭、404。`async-db.test.ts` 是 Node 的非同步 Db：D1 形狀的回傳值、交易外不讀到未提交資料、並發交易依序執行、batch 原子性。
 
 瀏覽器與 Sites 腳本只允許對 `localhost`／`127.0.0.1` 執行，並會寫入測試資料，請用獨立的 `DATA_DIR` 或本機 D1。

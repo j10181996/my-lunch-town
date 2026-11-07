@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import seed from "../../shared/catalog/stores.taichung.json";
 import { LOTS, MEAL_ART_KEYS, STREET_H, STREET_W, lotDoor } from "../../shared/town";
-import { openDb, SAMPLE_SEED, TAICHUNG_SEED, type Db } from "../db";
+import { asyncDb, openDb, SAMPLE_SEED, TAICHUNG_SEED, type RawDb } from "../db";
 import { EXPANSION_IDS, migrateTaichungExpansion } from "../catalog/taichung-expansion";
 import { createRoom, buildSnapshot } from "../rooms/rooms";
 import { changeQuantity } from "../orders/orders";
@@ -15,20 +15,20 @@ import { getTown } from "../stores/stores";
 import { checkStreet } from "../../web/art/street-check";
 import { streetLayout } from "../../web/art/street-layout";
 
-const databases: Db[] = [];
+const databases: RawDb[] = [];
 const directories: string[] = [];
 const db = (file = ":memory:", seedFile = TAICHUNG_SEED) => { const d = openDb(file, seedFile); databases.push(d); return d; };
 afterEach(() => { for (const d of databases.splice(0)) d.close(); for (const p of directories.splice(0)) rmSync(p, { recursive: true, force: true }); });
 describe("台中新店種子與地圖", () => {
-  it("十四家店可全選開團，八家新店都能點餐，地址與餐點符合限制", () => {
-    const database = db(), ctx = { db: database, events: noopEvents };
-    expect(getTown(database)).toHaveLength(20);
-    const walk = getTownCatalog(database);
+  it("十四家店可全選開團，八家新店都能點餐，地址與餐點符合限制", async () => {
+    const database = db(), ctx = { db: asyncDb(database), events: noopEvents };
+    expect(await getTown(ctx.db)).toHaveLength(20);
+    const walk = await getTownCatalog(ctx.db);
     expect(walk.stores).toHaveLength(14);
     expect(walk.stores.every((s) => s.address?.startsWith("臺中市"))).toBe(true);
     expect(matchesDietFilters(walk.meals.find((m) => m.name === "全蔬餐盒（含蛋）")!.tags, ["no-egg"])).toBe(false);
     expect(matchesDietFilters(walk.meals.find((m) => m.name === "手工漢堡排餐")!.tags, ["no-beef"])).toBe(false);
-    const room = createRoom(ctx, "owner", { title: "台中午餐", nickname: "團長", requestId: crypto.randomUUID(), storeIds: seed.stores.map((s) => s.id) }).snapshot;
+    const room = (await createRoom(ctx, "owner", { title: "台中午餐", nickname: "團長", requestId: crypto.randomUUID(), storeIds: seed.stores.map((s) => s.id) })).snapshot;
     expect(room.catalog.stores).toHaveLength(14); expect(room.catalog.meals).toHaveLength(145);
     for (const store of room.catalog.stores) {
       expect(store.address).toMatch(/^臺中市/);
@@ -41,11 +41,11 @@ describe("台中新店種子與地圖", () => {
         expect(MEAL_ART_KEYS).toContain(m.imageAssetKey);
         expect(m.name).not.toMatch(/看不清|疑似/);
       }
-      if (EXPANSION_IDS.includes(store.id)) changeQuantity(ctx, "owner", room.room.id, { mealId: meals[0].id, delta: 1, requestId: crypto.randomUUID() });
+      if (EXPANSION_IDS.includes(store.id)) await changeQuantity(ctx, "owner", room.room.id, { mealId: meals[0].id, delta: 1, requestId: crypto.randomUUID() });
     }
-    expect(buildSnapshot(database, room.room.id, "owner").myTotalQuantity).toBe(8);
+    expect((await buildSnapshot(ctx.db, room.room.id, "owner")).myTotalQuantity).toBe(8);
   });
-  it("舊六家資料庫補入八家，不覆蓋認領、改價、營業狀態或既有團快照", () => {
+  it("舊六家資料庫補入八家，不覆蓋認領、改價、營業狀態或既有團快照", async () => {
     const dir = mkdtempSync(join(tmpdir(), "lunch-town-67-upgrade-")); directories.push(dir);
     const path = join(dir, "old.json");
     writeFileSync(path, JSON.stringify({ ...seed, stores: seed.stores.filter((s) => !EXPANSION_IDS.includes(s.id)), meals: seed.meals.filter((m) => !EXPANSION_IDS.includes(m.storeId)) }));
@@ -55,23 +55,23 @@ describe("台中新店種子與地圖", () => {
     for (const id of EXPANSION_IDS) {
       database.prepare("DELETE FROM meals WHERE store_id = ?").run(id); database.prepare("DELETE FROM stores WHERE id = ?").run(id);
     }
-    const ctx = { db: database, events: noopEvents };
-    const room = createRoom(ctx, "owner", { title: "舊團", nickname: "團長", requestId: crypto.randomUUID(), storeIds: ["store-chingfan"] }).snapshot;
+    const ctx = { db: asyncDb(database), events: noopEvents };
+    const room = (await createRoom(ctx, "owner", { title: "舊團", nickname: "團長", requestId: crypto.randomUUID(), storeIds: ["store-chingfan"] })).snapshot;
     database.prepare("UPDATE stores SET owner_session_id = 'existing-owner', name = '店家自訂', status = 'resting' WHERE id = 'store-chingfan'").run();
     database.prepare("UPDATE meals SET price_twd = 999 WHERE id = 'meal-cf-signature'").run();
-    const before = JSON.stringify(buildSnapshot(database, room.room.id, "owner").catalog);
+    const before = JSON.stringify((await buildSnapshot(ctx.db, room.room.id, "owner")).catalog);
     migrateTaichungExpansion(database); migrateTaichungExpansion(database);
-    expect(getTown(database).filter((l) => l.store)).toHaveLength(14);
+    expect((await getTown(ctx.db)).filter((l) => l.store)).toHaveLength(14);
     expect(database.prepare("SELECT name, owner_session_id, status FROM stores WHERE id = 'store-chingfan'").get()).toEqual({ name: "店家自訂", owner_session_id: "existing-owner", status: "resting" });
     expect(database.prepare("SELECT price_twd FROM meals WHERE id = 'meal-cf-signature'").get()).toEqual({ price_twd: 999 });
-    expect(JSON.stringify(buildSnapshot(database, room.room.id, "owner").catalog)).toBe(before);
+    expect(JSON.stringify((await buildSnapshot(ctx.db, room.room.id, "owner")).catalog)).toBe(before);
     database.prepare("DELETE FROM meals WHERE store_id = 'store-musi'").run();
     migrateTaichungExpansion(database);
     expect(database.prepare("SELECT COUNT(*) AS n FROM meals WHERE store_id = 'store-musi'").get()).toEqual({ n: 0 });
   });
-  it("不混入虛構種子，碰到已占用的新地段會選其他空位", () => {
+  it("不混入虛構種子，碰到已占用的新地段會選其他空位", async () => {
     const sample = db(":memory:", SAMPLE_SEED);
-    expect(getTown(sample).filter((l) => l.store)).toHaveLength(3);
+    expect((await getTown(asyncDb(sample))).filter((l) => l.store)).toHaveLength(3);
     const database = db();
     database.prepare("DELETE FROM catalog_imports WHERE store_id = 'store-musi'").run();
     database.prepare("DELETE FROM meals WHERE store_id = 'store-musi'").run();

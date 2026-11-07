@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { StoreHours } from "../../shared/contracts";
 import { storeOpening, validateStoreHours } from "../../shared/store-hours";
 import { migrateStoreHours } from "../store-hours-schema";
-import { openDb, SAMPLE_SEED } from "../db";
+import { asyncDb, openDb, SAMPLE_SEED } from "../db";
 import { noopEvents } from "../context";
 import { createRoom, buildSnapshot } from "../rooms/rooms";
 import { setHours, getTown } from "../stores/stores";
@@ -61,49 +61,50 @@ it("upgrades old domain images twice without resetting hours or existing rows", 
   } finally { db.close(); }
 });
 
-it("excludes closed stores AND their meals from new rooms; keeps existing price and cutoff snapshots", () => {
+it("excludes closed stores AND their meals from new rooms; keeps existing price and cutoff snapshots", async () => {
   const now = vi.spyOn(Date, "now").mockReturnValue(instant("2026-11-09T10:00:00"));
-  const db = openDb(":memory:", SAMPLE_SEED);
+  const raw = openDb(":memory:", SAMPLE_SEED);
+  const db = asyncDb(raw);
   try {
     const ctx = { db, events: noopEvents };
-    db.prepare("UPDATE stores SET owner_session_id = 'shop' WHERE id = 'store-af'").run();
-    setHours(db, "shop", "store-af", hours());
-    const first = createRoom(ctx, "owner", { title: "午餐", nickname: "團主", requestId: "first-request", storeIds: SAMPLE_STORE_IDS });
+    raw.prepare("UPDATE stores SET owner_session_id = 'shop' WHERE id = 'store-af'").run();
+    await setHours(db, "shop", "store-af", hours());
+    const first = await createRoom(ctx, "owner", { title: "午餐", nickname: "團主", requestId: "first-request", storeIds: SAMPLE_STORE_IDS });
     expect(first.snapshot.catalog.stores.find((s) => s.id === "store-af")?.orderDeadlineAt).toBe(instant("2026-11-09T17:00:00"));
-    changeQuantity(ctx, "owner", first.snapshot.room.id, { mealId: "meal-af-chicken", delta: 1, requestId: "order-request" });
-    setHours(db, "shop", "store-af", { weekly: Array.from({ length: 7 }, () => []), cutoff: null });
-    expect(() => createRoom(ctx, "other", { title: "晚餐", nickname: "團主", requestId: "closed-request", storeIds: SAMPLE_STORE_IDS }))
-      .toThrow("「阿福便當」目前沒有營業");
-    const second = createRoom(ctx, "other", { title: "晚餐", nickname: "團主", requestId: "second-request", storeIds: ["store-tree", "store-green"] });
+    await changeQuantity(ctx, "owner", first.snapshot.room.id, { mealId: "meal-af-chicken", delta: 1, requestId: "order-request" });
+    await setHours(db, "shop", "store-af", { weekly: Array.from({ length: 7 }, () => []), cutoff: null });
+    await expect(createRoom(ctx, "other", { title: "晚餐", nickname: "團主", requestId: "closed-request", storeIds: SAMPLE_STORE_IDS }))
+      .rejects.toThrow("「阿福便當」目前沒有營業");
+    const second = await createRoom(ctx, "other", { title: "晚餐", nickname: "團主", requestId: "second-request", storeIds: ["store-tree", "store-green"] });
     expect(second.snapshot.catalog.stores.some((s) => s.id === "store-af")).toBe(false);
     expect(second.snapshot.catalog.meals.some((m) => m.storeId === "store-af")).toBe(false);
-    expect(getTown(db).find((l) => l.store?.id === "store-af")?.store?.status).toBe("resting");
+    expect((await getTown(db)).find((l) => l.store?.id === "store-af")?.store?.status).toBe("resting");
     now.mockReturnValue(instant("2026-11-09T18:01:00"));
-    const closed = closeRoom(ctx, "owner", first.snapshot.room.id, "close-request");
+    const closed = await closeRoom(ctx, "owner", first.snapshot.room.id, "close-request");
     expect(closed.totalTwd).toBe(120);
     expect(closed.room.status).toBe("closed");
     expect(closed.catalog.stores.find((s) => s.id === "store-af")?.orderDeadlineAt).toBe(instant("2026-11-09T17:00:00"));
-    expect(buildSnapshot(db, first.snapshot.room.id, "owner").storeOrders).toHaveLength(1);
-  } finally { db.close(); }
+    expect((await buildSnapshot(db, first.snapshot.room.id, "owner")).storeOrders).toHaveLength(1);
+  } finally { raw.close(); }
 });
 
-it("filters by time at room creation and preserves requestId across closing boundaries", () => {
+it("filters by time at room creation and preserves requestId across closing boundaries", async () => {
   const now = vi.spyOn(Date, "now").mockReturnValue(instant("2026-11-09T10:00:00"));
-  const db = openDb(":memory:", SAMPLE_SEED);
+  const raw = openDb(":memory:", SAMPLE_SEED);
   try {
-    db.prepare("UPDATE stores SET hours_json = ?").run(JSON.stringify(hours()));
-    const ctx = { db, events: noopEvents };
+    raw.prepare("UPDATE stores SET hours_json = ?").run(JSON.stringify(hours()));
+    const ctx = { db: asyncDb(raw), events: noopEvents };
     const input = { title: "午餐", nickname: "團主", requestId: "retry-create", storeIds: SAMPLE_STORE_IDS };
-    const first = createRoom(ctx, "owner", input);
+    const first = await createRoom(ctx, "owner", input);
     now.mockReturnValue(instant("2026-11-09T18:00:00"));
-    expect(createRoom(ctx, "owner", input).snapshot.room.id).toBe(first.snapshot.room.id);
-    expect(() => createRoom(ctx, "owner", { ...input, requestId: "new-create" })).toThrow(/沒有營業/);
-  } finally { db.close(); }
+    expect((await createRoom(ctx, "owner", input)).snapshot.room.id).toBe(first.snapshot.room.id);
+    await expect(createRoom(ctx, "owner", { ...input, requestId: "new-create" })).rejects.toThrow(/沒有營業/);
+  } finally { raw.close(); }
 });
 
 it("hours API enforces owner permissions, validates input, and can remove the schedule", async () => {
-  const db = openDb(":memory:", SAMPLE_SEED);
-  const app = await buildApp({ ctx: { db, events: noopEvents } });
+  const raw = openDb(":memory:", SAMPLE_SEED);
+  const app = await buildApp({ ctx: { db: asyncDb(raw), events: noopEvents } });
   try {
     const claim = await inject(app, { method: "POST", url: "/api/stores/claim", payload: { manageKey: "demo-store-af" } });
     const cookie = String(claim.headers["set-cookie"]).split(";")[0];
@@ -114,5 +115,5 @@ it("hours API enforces owner permissions, validates input, and can remove the sc
     expect(saved.statusCode).toBe(200); expect(saved.json().hours).toEqual(hours());
     const reset = await inject(app, { method: "PUT", url, headers: { cookie, "content-type": "application/json" }, payload: "null" });
     expect(reset.statusCode).toBe(200); expect(reset.json().hours).toBeNull();
-  } finally { db.close(); }
+  } finally { raw.close(); }
 });

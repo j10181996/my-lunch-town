@@ -53,12 +53,12 @@ function toOrder(r: OrderRow): StoreOrder {
 }
 
 /** 僅由 closeRoom 在 open → closed 的同一寫入交易內呼叫。 */
-export function createStoreOrders(db: Db, roomId: string, ownerNickname: string): string[] {
-  const room = getRoomRow(db, roomId);
+export async function createStoreOrders(db: Db, roomId: string, ownerNickname: string): Promise<string[]> {
+  const room = await getRoomRow(db, roomId);
   const place = toRoom(room);
-  const catalog = loadCatalog(db, room);
-  const items = loadItems(db, roomId);
-  const members = listMembers(db, roomId);
+  const catalog = await loadCatalog(db, room);
+  const items = await loadItems(db, roomId);
+  const members = await listMembers(db, roomId);
   const totals = computeStoreTotals(catalog, items).filter((s) => s.totalQuantity > 0);
   const now = Date.now();
   const insert = db.prepare(`INSERT INTO store_orders
@@ -95,7 +95,7 @@ export function createStoreOrders(db: Db, roomId: string, ownerNickname: string)
         },
       ];
     });
-    insert.run(
+    await insert.bind(
       `so_${randomId(10)}`,
       roomId,
       store.storeId,
@@ -113,30 +113,29 @@ export function createStoreOrders(db: Db, roomId: string, ownerNickname: string)
       delivery.kind === "ok" || delivery.kind === "below-min" ? delivery.minTwd : null,
       // 地址屬個資：只交給要外送的店家，自取單不帶。
       fulfillmentOf(delivery) === "delivery" ? room.delivery_address ?? null : null,
-    );
+    ).run();
   }
   return totals.map((s) => s.storeId);
 }
 
-export function roomStoreOrders(db: Db, roomId: string): RoomStoreOrder[] {
-  const rows = db
+export async function roomStoreOrders(db: Db, roomId: string): Promise<RoomStoreOrder[]> {
+  const { results } = await db
     .prepare(
       `SELECT store_id AS storeId, store_name AS storeName, status,
     reject_reason AS rejectReason, total_quantity AS totalQuantity, total_twd AS totalTwd,
     updated_at AS updatedAt, fulfillment, distance_km AS distanceKm,
     delivery_min_twd AS deliveryMinTwd FROM store_orders WHERE room_id = ? ORDER BY rowid`,
     )
-    .all(roomId);
-  return rows as unknown as RoomStoreOrder[];
+    .bind(roomId).all<RoomStoreOrder>();
+  return results;
 }
 
-export function listStoreOrders(db: Db, sessionId: string, storeId: string): StoreOrder[] {
-  requireOwner(db, sessionId, storeId);
-  return (
-    db
-      .prepare("SELECT * FROM store_orders WHERE store_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 50")
-      .all(storeId) as unknown as OrderRow[]
-  ).map(toOrder);
+export async function listStoreOrders(db: Db, sessionId: string, storeId: string): Promise<StoreOrder[]> {
+  await requireOwner(db, sessionId, storeId);
+  const { results } = await db
+    .prepare("SELECT * FROM store_orders WHERE store_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 50")
+    .bind(storeId).all<OrderRow>();
+  return results.map(toOrder);
 }
 
 const transitions: Record<StoreOrderStatus, StoreOrderStatus[]> = {
@@ -154,19 +153,17 @@ const labels: Record<StoreOrderStatus, string> = {
   rejected: "已拒單",
 };
 
-export function updateStoreOrderStatus(
+export async function updateStoreOrderStatus(
   ctx: Ctx,
   sessionId: string,
   storeId: string,
   orderId: string,
   input: UpdateStoreOrderInput,
-): StoreOrder {
+): Promise<StoreOrder> {
   const { db } = ctx;
-  const { order, revision } = withWriteTx(db, () => {
-    requireOwner(db, sessionId, storeId);
-    const row = db.prepare("SELECT * FROM store_orders WHERE id = ? AND store_id = ?").get(orderId, storeId) as
-      | OrderRow
-      | undefined;
+  const { order, revision } = await withWriteTx(db, async () => {
+    await requireOwner(db, sessionId, storeId);
+    const row = await db.prepare("SELECT * FROM store_orders WHERE id = ? AND store_id = ?").bind(orderId, storeId).first<OrderRow>();
     if (!row) throw new AppError("INVALID_INPUT", 404, "找不到這筆訂單");
     const next = oneOf(input?.status, "訂單狀態", Object.keys(transitions) as StoreOrderStatus[]);
     if (next === row.status) return { order: toOrder(row), revision: null };
@@ -175,14 +172,10 @@ export function updateStoreOrderStatus(
     }
     const reason = next === "rejected" ? text(input?.reason, "拒單原因", 1, 40) : null;
     const now = Date.now();
-    db.prepare("UPDATE store_orders SET status = ?, reject_reason = ?, updated_at = ? WHERE id = ?").run(
-      next,
-      reason,
-      now,
-      orderId,
-    );
+    await db.prepare("UPDATE store_orders SET status = ?, reject_reason = ?, updated_at = ? WHERE id = ?")
+      .bind(next, reason, now, orderId).run();
     const order = toOrder({ ...row, status: next, reject_reason: reason, updated_at: now });
-    return { order, revision: bumpRevision(db, row.room_id) };
+    return { order, revision: await bumpRevision(db, row.room_id) };
   });
   if (revision !== null) {
     ctx.events.roomChanged(order.roomId, revision);

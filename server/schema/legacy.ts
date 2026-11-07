@@ -1,7 +1,7 @@
 import type { DeliveryRules } from "../../shared/contracts";
 import { migrateTaichungExpansionSchema } from "../catalog/taichung-expansion";
-import type { Db } from "../db";
-import { withWriteTx } from "../db-shared";
+import type { SyncDb as Db } from "../db-shared";
+import { withSyncTx } from "../db-shared";
 import { migrateDeliveryAddress } from "../delivery-address-schema";
 import { migrateGeoLocation, migrateLocationImports } from "../geo-schema";
 import { MEAL_IMAGES_SCHEMA } from "../images/schema";
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS processed_requests (
 
 /** 外送欄位；只在 stores.delivery_json 這次才新增時，從種子補入外送規則。回填與 DDL 同交易。 */
 function migrateDelivery(db: Db, seedStores: () => LegacySeedStore[]) {
-  withWriteTx(db, () => {
+  withSyncTx(db, () => {
     const columns: Record<string, Array<[string, string]>> = {
       stores: [["delivery_json", "TEXT"]],
       rooms: [["delivery_x", "REAL"], ["delivery_y", "REAL"]],
@@ -178,7 +178,7 @@ function migrateDelivery(db: Db, seedStores: () => LegacySeedStore[]) {
 
 /** 收款欄位與表；不回填或覆蓋既有資料。 */
 function migratePayment(db: Db) {
-  withWriteTx(db, () => {
+  withSyncTx(db, () => {
     const existing = db.prepare("PRAGMA table_info(rooms)").all() as Array<{ name: string }>;
     for (const [name, type] of [["payment_json", "TEXT"], ["payment_sent_at", "INTEGER"]]) {
       if (!existing.some((c) => c.name === name)) db.exec(`ALTER TABLE rooms ADD COLUMN ${name} ${type}`);

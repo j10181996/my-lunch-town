@@ -1,6 +1,6 @@
 import type { RoomSnapshot } from "../../shared/contracts";
 import type { Ctx } from "../context";
-import { err, withWriteTx, type Db } from "../db";
+import { err, withSyncTx, withWriteTx, type Db, type SyncDb } from "../db";
 import { createStoreOrders } from "../orders/storeOrders";
 import { buildSnapshot, bumpRevision, getRoomRow, listMembers, requireMember } from "./rooms";
 
@@ -9,10 +9,10 @@ export const MIN_DEADLINE_LEAD_MS = 60_000;
 export const MAX_DEADLINE_LEAD_MS = 24 * 60 * 60_000;
 
 /** 可重複執行：舊 SQLite／D1 image 補上 rooms.deadline_at。 */
-export function migrateDeadline(db: Pick<Db, "prepare" | "exec">) {
+export function migrateDeadline(db: SyncDb) {
   const columns = db.prepare("PRAGMA table_info(rooms)").all() as Array<{ name: string }>;
   if (columns.some((c) => c.name === "deadline_at")) return;
-  withWriteTx(db as Db, () => {
+  withSyncTx(db, () => {
     db.exec("ALTER TABLE rooms ADD COLUMN deadline_at INTEGER");
   });
 }
@@ -36,13 +36,13 @@ export function deadlinePassed(room: { deadline_at?: number | null }, now = Date
  * 收單的唯一交易內步驟：手動收單與自動收單都走這裡。
  * 必須在 withWriteTx 內呼叫；已收單時回 null，因此重試或並發都不會重複建立店家訂單。
  */
-export function closeInTx(db: Db, roomId: string, now = Date.now()): { revision: number; storeIds: string[] } | null {
-  const room = getRoomRow(db, roomId);
+export async function closeInTx(db: Db, roomId: string, now = Date.now()): Promise<{ revision: number; storeIds: string[] } | null> {
+  const room = await getRoomRow(db, roomId);
   if (room.status === "closed") return null;
-  const owner = listMembers(db, roomId).find((m) => m.role === "owner")!;
-  db.prepare("UPDATE rooms SET status = 'closed', closed_at = ? WHERE id = ?").run(now, roomId);
-  const storeIds = createStoreOrders(db, roomId, owner.nickname);
-  return { revision: bumpRevision(db, roomId), storeIds };
+  const owner = (await listMembers(db, roomId)).find((m) => m.role === "owner")!;
+  await db.prepare("UPDATE rooms SET status = 'closed', closed_at = ? WHERE id = ?").bind(now, roomId).run();
+  const storeIds = await createStoreOrders(db, roomId, owner.nickname);
+  return { revision: await bumpRevision(db, roomId), storeIds };
 }
 
 function notifyClosed(ctx: Ctx, roomId: string, result: { revision: number; storeIds: string[] }) {
@@ -51,15 +51,15 @@ function notifyClosed(ctx: Ctx, roomId: string, result: { revision: number; stor
 }
 
 /** 掃描所有已過截止但仍開著的團並自動收單；回傳本次收掉的團。 */
-export function closeExpiredRooms(ctx: Ctx, now = Date.now()): string[] {
+export async function closeExpiredRooms(ctx: Ctx, now = Date.now()): Promise<string[]> {
   const { db } = ctx;
-  const due = db
+  const { results: due } = await db
     .prepare("SELECT id FROM rooms WHERE status = 'open' AND deadline_at IS NOT NULL AND deadline_at <= ?")
-    .all(now) as Array<{ id: string }>;
+    .bind(now).all<{ id: string }>();
   const closed: string[] = [];
   for (const { id } of due) {
-    const result = withWriteTx(db, () => {
-      const room = getRoomRow(db, id);
+    const result = await withWriteTx(db, async () => {
+      const room = await getRoomRow(db, id);
       return deadlinePassed(room, now) ? closeInTx(db, id, now) : null;
     });
     if (result) {
@@ -71,11 +71,11 @@ export function closeExpiredRooms(ctx: Ctx, now = Date.now()): string[] {
 }
 
 /** 團員頁面倒數歸零時呼叫；未到截止不做事，可安全重試。 */
-export function expireRoom(ctx: Ctx, sessionId: string, roomId: string, now = Date.now()): RoomSnapshot {
+export async function expireRoom(ctx: Ctx, sessionId: string, roomId: string, now = Date.now()): Promise<RoomSnapshot> {
   const { db } = ctx;
-  requireMember(db, roomId, sessionId);
-  const result = withWriteTx(db, () => {
-    const { room } = requireMember(db, roomId, sessionId);
+  // 身分檢查只在交易內做，交易才會依請求到達的順序排隊。
+  const result = await withWriteTx(db, async () => {
+    const { room } = await requireMember(db, roomId, sessionId);
     return deadlinePassed(room, now) ? closeInTx(db, roomId, now) : null;
   });
   if (result) notifyClosed(ctx, roomId, result);
@@ -83,16 +83,16 @@ export function expireRoom(ctx: Ctx, sessionId: string, roomId: string, now = Da
 }
 
 /** 揪團者開團後設定、延後或取消截止時間。 */
-export function setDeadline(ctx: Ctx, sessionId: string, roomId: string, body: unknown): RoomSnapshot {
+export async function setDeadline(ctx: Ctx, sessionId: string, roomId: string, body: unknown): Promise<RoomSnapshot> {
   const { db } = ctx;
   const now = Date.now();
   const deadline = parseDeadline((body as { deadlineAt?: unknown } | null)?.deadlineAt, now);
   if (deadline === undefined) throw err.invalid("缺少截止時間");
-  const revision = withWriteTx(db, () => {
-    const { room, me } = requireMember(db, roomId, sessionId);
+  const revision = await withWriteTx(db, async () => {
+    const { room, me } = await requireMember(db, roomId, sessionId);
     if (me.role !== "owner") throw err.notAllowed("只有揪團者可以設定截止時間");
     if (room.status !== "open" || deadlinePassed(room, now)) throw err.closed();
-    db.prepare("UPDATE rooms SET deadline_at = ? WHERE id = ?").run(deadline, roomId);
+    await db.prepare("UPDATE rooms SET deadline_at = ? WHERE id = ?").bind(deadline, roomId).run();
     return bumpRevision(db, roomId);
   });
   ctx.events.roomChanged(roomId, revision);

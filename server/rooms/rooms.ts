@@ -53,8 +53,8 @@ interface MemberRow {
   role: "owner" | "participant";
 }
 
-export function getRoomRow(db: Db, roomId: string): RoomRow {
-  const row = db.prepare("SELECT * FROM rooms WHERE id = ?").get(roomId) as RoomRow | undefined;
+export async function getRoomRow(db: Db, roomId: string): Promise<RoomRow> {
+  const row = await db.prepare("SELECT * FROM rooms WHERE id = ?").bind(roomId).first<RoomRow>();
   if (!row) throw err.roomNotFound();
   return row;
 }
@@ -83,31 +83,29 @@ function toMember(m: MemberRow): Member {
   };
 }
 
-export function findMember(db: Db, roomId: string, sessionId: string): Member | null {
-  const m = db.prepare("SELECT * FROM members WHERE room_id = ? AND session_id = ?").get(roomId, sessionId) as
-    | MemberRow
-    | undefined;
+export async function findMember(db: Db, roomId: string, sessionId: string): Promise<Member | null> {
+  const m = await db.prepare("SELECT * FROM members WHERE room_id = ? AND session_id = ?").bind(roomId, sessionId).first<MemberRow>();
   return m ? toMember(m) : null;
 }
 
 /** 房間存在且本工作階段是成員；否則 404 / 401。 */
-export function requireMember(db: Db, roomId: string, sessionId: string): { room: RoomRow; me: Member } {
-  const room = getRoomRow(db, roomId);
-  const me = findMember(db, roomId, sessionId);
+export async function requireMember(db: Db, roomId: string, sessionId: string): Promise<{ room: RoomRow; me: Member }> {
+  const room = await getRoomRow(db, roomId);
+  const me = await findMember(db, roomId, sessionId);
   if (!me) throw err.session();
   return { room, me };
 }
 
-export function listMembers(db: Db, roomId: string): Member[] {
-  const rows = db.prepare("SELECT * FROM members WHERE room_id = ? ORDER BY joined_seq").all(roomId) as unknown as MemberRow[];
-  return rows.map(toMember);
+export async function listMembers(db: Db, roomId: string): Promise<Member[]> {
+  const { results } = await db.prepare("SELECT * FROM members WHERE room_id = ? ORDER BY joined_seq").bind(roomId).all<MemberRow>();
+  return results.map(toMember);
 }
 
 /** 讀取該團凍結的菜單。 */
-export function loadCatalog(db: Db, room: RoomRow): Catalog {
-  const stores = db
+export async function loadCatalog(db: Db, room: RoomRow): Promise<Catalog> {
+  const { results: stores } = await db
     .prepare("SELECT rs.*, (SELECT address FROM stores WHERE id = rs.store_id) AS address FROM room_stores rs WHERE room_id = ? ORDER BY sort_order")
-    .all(room.id) as Array<{
+    .bind(room.id).all<{
       store_id: string;
       address: string | null;
       name: string;
@@ -120,12 +118,12 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
       lng: number | null;
       hours_json?: string | null;
       order_deadline_at?: number | null;
-    }>;
-  const meals = db
+    }>();
+  const { results: meals } = await db
     .prepare(
       "SELECT m.* FROM room_meals m JOIN room_stores s ON s.room_id = m.room_id AND s.store_id = m.store_id WHERE m.room_id = ? ORDER BY s.sort_order, m.sort_order",
     )
-    .all(room.id) as Array<{ meal_id: string; store_id: string; name: string; price_twd: number; image_key: string; available: number; tags_json: string; options_json: string | null }>;
+    .bind(room.id).all<{ meal_id: string; store_id: string; name: string; price_twd: number; image_key: string; available: number; tags_json: string; options_json: string | null }>();
   return {
     catalogVersion: room.catalog_version,
     currency: "TWD",
@@ -156,12 +154,12 @@ export function loadCatalog(db: Db, room: RoomRow): Catalog {
   };
 }
 
-export function loadItems(db: Db, roomId: string, memberId?: string): OrderItem[] {
-  const rows = (
-    memberId
-      ? db.prepare("SELECT * FROM order_items WHERE room_id = ? AND member_id = ?").all(roomId, memberId)
-      : db.prepare("SELECT * FROM order_items WHERE room_id = ?").all(roomId)
-  ) as Array<{ room_id: string; member_id: string; meal_id: string; option_key: string; note: string; quantity: number; unit_price_twd: number }>;
+export async function loadItems(db: Db, roomId: string, memberId?: string): Promise<OrderItem[]> {
+  type ItemRow = { room_id: string; member_id: string; meal_id: string; option_key: string; note: string; quantity: number; unit_price_twd: number };
+  const { results: rows } = await (memberId
+    ? db.prepare("SELECT * FROM order_items WHERE room_id = ? AND member_id = ?").bind(roomId, memberId)
+    : db.prepare("SELECT * FROM order_items WHERE room_id = ?").bind(roomId)
+  ).all<ItemRow>();
   return rows.map((r) => {
     const choiceIds = choiceIdsOf(r.option_key);
     return {
@@ -178,17 +176,17 @@ export function loadItems(db: Db, roomId: string, memberId?: string): OrderItem[
 }
 
 /** 街上目前其他店面與其供應中餐點；本團店家佔用的店面格以凍結資料為準。 */
-function streetStores(db: Db, catalog: Catalog): StreetStore[] {
+async function streetStores(db: Db, catalog: Catalog): Promise<StreetStore[]> {
   const taken = new Set(catalog.stores.map((s) => s.lotIndex));
   const ids = new Set(catalog.stores.map((s) => s.id));
-  const rows = db.prepare("SELECT id, name, style_key, lot_index FROM stores ORDER BY lot_index").all() as
-    Array<{ id: string; name: string; style_key: string; lot_index: number }>;
+  const { results: rows } = await db.prepare("SELECT id, name, style_key, lot_index FROM stores ORDER BY lot_index")
+    .all<{ id: string; name: string; style_key: string; lot_index: number }>();
   const others = rows.filter((r) => !ids.has(r.id) && !taken.has(r.lot_index));
   const shown = new Set(others.map((r) => r.id));
-  const meals = (db
+  const meals = (await db
     .prepare("SELECT id, store_id, name, price_twd, image_key, tags_json, options_json FROM meals WHERE available = 1 ORDER BY sort_order, id")
-    .all() as Array<{ id: string; store_id: string; name: string; price_twd: number; image_key: string; tags_json: string; options_json: string | null }>)
-    .filter((m) => shown.has(m.store_id));
+    .all<{ id: string; store_id: string; name: string; price_twd: number; image_key: string; tags_json: string; options_json: string | null }>())
+    .results.filter((m) => shown.has(m.store_id));
   return others.map((r) => ({
     id: r.id,
     name: r.name,
@@ -208,15 +206,15 @@ function streetStores(db: Db, catalog: Catalog): StreetStore[] {
   }));
 }
 
-function myPayment(db: Db, roomId: string, memberId: string, amountTwd: number) {
-  const status = paymentStatus(db, roomId, memberId);
-  return { amountTwd, status, remindedAt: status === "unpaid" ? paymentRemindedAt(db, roomId) : null };
+async function myPayment(db: Db, roomId: string, memberId: string, amountTwd: number) {
+  const status = await paymentStatus(db, roomId, memberId);
+  return { amountTwd, status, remindedAt: status === "unpaid" ? await paymentRemindedAt(db, roomId) : null };
 }
 
-export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSnapshot {
-  const { room, me } = requireMember(db, roomId, sessionId);
-  const catalog = loadCatalog(db, room);
-  const all = loadItems(db, roomId);
+export async function buildSnapshot(db: Db, roomId: string, sessionId: string): Promise<RoomSnapshot> {
+  const { room, me } = await requireMember(db, roomId, sessionId);
+  const catalog = await loadCatalog(db, room);
+  const all = await loadItems(db, roomId);
   const myItems = sortItemsByCatalog(
     catalog,
     all.filter((i) => i.memberId === me.id),
@@ -224,55 +222,54 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
   const mine = sumItems(myItems);
   const storeTotals = computeStoreTotals(catalog, all);
   const g = grandTotals(storeTotals);
+  const members = await listMembers(db, roomId);
   return {
     payment: room.payment_json && (me.role === "owner" || room.payment_sent_at !== null) ? {
       info: JSON.parse(room.payment_json) as PaymentInfo,
       sentAt: room.payment_sent_at,
-      ownerNickname: listMembers(db, roomId).find((m) => m.role === "owner")!.nickname,
-      ...(me.role === "owner" ? { remindedAt: paymentRemindedAt(db, roomId) } : {}),
+      ownerNickname: members.find((m) => m.role === "owner")!.nickname,
+      ...(me.role === "owner" ? { remindedAt: await paymentRemindedAt(db, roomId) } : {}),
     } : null,
     myPayment: room.status === "closed" && me.role !== "owner" && mine.totalTwd > 0
-      ? myPayment(db, roomId, me.id, mine.totalTwd) : null,
-    lunchParty: lunchParty(db, roomId),
-    socialEnabled: socialEnabled(db, me.id),
-    streetStores: streetStores(db, catalog),
+      ? await myPayment(db, roomId, me.id, mine.totalTwd) : null,
+    lunchParty: await lunchParty(db, roomId),
+    socialEnabled: await socialEnabled(db, me.id),
+    streetStores: await streetStores(db, catalog),
     room: toRoom(room),
     me,
-    members: listMembers(db, roomId).map((m) => ({ id: m.id, nickname: m.nickname, avatarId: m.avatarId, role: m.role })),
+    members: members.map((m) => ({ id: m.id, nickname: m.nickname, avatarId: m.avatarId, role: m.role })),
     catalog,
     myItems,
     myTotalTwd: mine.totalTwd,
     myTotalQuantity: mine.totalQuantity,
     storeTotals,
-    storeOrders: roomStoreOrders(db, roomId),
-    likedStoreIds: likedStoreIds(db, roomId, me.id),
+    storeOrders: await roomStoreOrders(db, roomId),
+    likedStoreIds: await likedStoreIds(db, roomId, me.id),
     totalQuantity: g.totalQuantity,
     totalTwd: g.totalTwd,
   };
 }
 
-export function bumpRevision(db: Db, roomId: string): number {
-  const row = db.prepare("UPDATE rooms SET revision = revision + 1 WHERE id = ? RETURNING revision").get(roomId) as {
-    revision: number;
-  };
-  return row.revision;
+export async function bumpRevision(db: Db, roomId: string): Promise<number> {
+  const row = await db.prepare("UPDATE rooms SET revision = revision + 1 WHERE id = ? RETURNING revision").bind(roomId).first<{ revision: number }>();
+  return row!.revision;
 }
 
-function insertMember(db: Db, roomId: string, sessionId: string, nickname: string, avatarId: string, role: Member["role"]) {
-  const stats = db
+async function insertMember(db: Db, roomId: string, sessionId: string, nickname: string, avatarId: string, role: Member["role"]) {
+  const stats = (await db
     .prepare(
       "SELECT COUNT(*) AS total, COALESCE(MAX(CASE WHEN nickname = ? THEN display_suffix END), 0) AS maxSuffix FROM members WHERE room_id = ?",
     )
-    .get(nickname, roomId) as { total: number; maxSuffix: number };
+    .bind(nickname, roomId).first<{ total: number; maxSuffix: number }>())!;
   const id = `m_${randomId(10)}`;
-  db.prepare(
+  await db.prepare(
     "INSERT INTO members (id, room_id, session_id, nickname, display_suffix, avatar_id, role, joined_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(id, roomId, sessionId, nickname, stats.maxSuffix + 1, avatarId, role, stats.total + 1);
+  ).bind(id, roomId, sessionId, nickname, stats.maxSuffix + 1, avatarId, role, stats.total + 1).run();
   return id;
 }
 
-function pickAvatar(db: Db, roomId: string): string {
-  const used = db.prepare("SELECT avatar_id FROM members WHERE room_id = ?").all(roomId) as Array<{ avatar_id: string }>;
+async function pickAvatar(db: Db, roomId: string): Promise<string> {
+  const { results: used } = await db.prepare("SELECT avatar_id FROM members WHERE room_id = ?").bind(roomId).all<{ avatar_id: string }>();
   const set = new Set(used.map((u) => u.avatar_id));
   return AVATAR_IDS.find((a) => !set.has(a)) ?? AVATAR_IDS[used.length % AVATAR_IDS.length];
 }
@@ -299,7 +296,7 @@ function parseDeliveryAddress(value: unknown): string | null {
   return v || null;
 }
 
-export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) {
+export async function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) {
   const title = text(input?.title, "團名", 1, 20);
   const nickname = text(input?.nickname, "暱稱", 1, 12);
   const reqId = checkRequestId(input?.requestId);
@@ -334,10 +331,10 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
   const digest = rawDeadline != null ? JSON.stringify([storeDigest, rawDeadline]) : storeDigest;
   const { db } = ctx;
 
-  const roomId = withWriteTx(db, () => {
-    const prev = db
+  const roomId = await withWriteTx(db, async () => {
+    const prev = await db
       .prepare("SELECT payload_digest, result_json FROM processed_requests WHERE scope = 'create-room' AND actor_id = ? AND request_id = ?")
-      .get(sessionId, reqId) as { payload_digest: string; result_json: string } | undefined;
+      .bind(sessionId, reqId).first<{ payload_digest: string; result_json: string }>();
     if (prev) {
       if (prev.payload_digest !== digest) throw err.conflict();
       return (JSON.parse(prev.result_json) as { roomId: string }).roomId;
@@ -347,12 +344,12 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
     const openedAt = Date.now();
     const deadlineAt = parseDeadline(rawDeadline, openedAt) ?? null;
     // 只凍結團長選的店與其供應中餐點；任何一家不能接單就整團不開，避免默默少一家。
-    const stores = db
+    const { results: stores } = await db
       .prepare(
         `SELECT s.*, EXISTS (SELECT 1 FROM meals m WHERE m.store_id = s.id AND m.available = 1) AS has_meals
          FROM stores s WHERE s.id IN (${storeIds.map(() => "?").join(", ")}) ORDER BY s.lot_index`,
       )
-      .all(...storeIds) as Array<{
+      .bind(...storeIds).all<{
         id: string;
         name: string;
         style_key: string;
@@ -364,7 +361,7 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
         hours_json: string | null;
         status: string;
         has_meals: number;
-      }>;
+      }>();
     if (stores.length !== storeIds.length) throw err.invalid("找不到選擇的店家，請重新整理後再選");
     for (const s of stores) {
       const open = s.status === "open" && s.has_meals === 1
@@ -374,65 +371,63 @@ export function createRoom(ctx: Ctx, sessionId: string, input: CreateRoomInput) 
 
     const id = randomId(8);
     const isSample = stores.every((s) => s.is_sample === 1) ? 1 : 0;
-    db.prepare(
+    await db.prepare(
       `INSERT INTO rooms
         (id, title, status, catalog_version, is_sample, revision, created_at, delivery_x, delivery_y, deadline_at, delivery_address,
          delivery_lat, delivery_lng)
         VALUES (?, ?, 'open', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, title, `room:${id}`, isSample, Date.now(), point?.x ?? null, point?.y ?? null, deadlineAt, address,
-      location?.lat ?? null, location?.lng ?? null);
+    ).bind(id, title, `room:${id}`, isSample, Date.now(), point?.x ?? null, point?.y ?? null, deadlineAt, address,
+      location?.lat ?? null, location?.lng ?? null).run();
 
     const insStore = db.prepare(
       `INSERT INTO room_stores
         (room_id, store_id, name, style_key, lot_index, door_x, door_y, sort_order, delivery_json, order_deadline_at, lat, lng)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    stores.forEach((s, i) => {
+    for (const [i, s] of stores.entries()) {
       const door = lotDoor(s.lot_index);
-      insStore.run(id, s.id, s.name, s.style_key, s.lot_index, door.x, door.y, i, s.delivery_json,
-        storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).deadline, s.lat ?? null, s.lng ?? null);
-    });
-    db.prepare(
+      await insStore.bind(id, s.id, s.name, s.style_key, s.lot_index, door.x, door.y, i, s.delivery_json,
+        storeOpening(s.hours_json ? JSON.parse(s.hours_json) : null, openedAt).deadline, s.lat ?? null, s.lng ?? null).run();
+    }
+    await db.prepare(
       `INSERT INTO room_meals (room_id, meal_id, store_id, name, price_twd, image_key, available, tags_json, sort_order, options_json)
        SELECT ?, m.id, m.store_id, m.name, m.price_twd, m.image_key, 1, m.tags_json, m.sort_order, m.options_json
        FROM meals m JOIN room_stores s ON s.store_id = m.store_id AND s.room_id = ?
        WHERE m.available = 1`,
-    ).run(id, id);
+    ).bind(id, id).run();
 
-    insertMember(db, id, sessionId, nickname, avatarId ?? AVATAR_IDS[0], "owner");
-    db.prepare(
+    await insertMember(db, id, sessionId, nickname, avatarId ?? AVATAR_IDS[0], "owner");
+    await db.prepare(
       "INSERT INTO processed_requests (scope, actor_id, request_id, payload_digest, result_json) VALUES ('create-room', ?, ?, ?, ?)",
-    ).run(sessionId, reqId, digest, JSON.stringify({ roomId: id }));
+    ).bind(sessionId, reqId, digest, JSON.stringify({ roomId: id })).run();
     return id;
   });
 
-  return { invitePath: `/r/${roomId}`, snapshot: buildSnapshot(db, roomId, sessionId) };
+  return { invitePath: `/r/${roomId}`, snapshot: await buildSnapshot(db, roomId, sessionId) };
 }
 
-export function joinRoom(ctx: Ctx, sessionId: string, roomId: string, input: JoinInput): RoomSnapshot {
+export async function joinRoom(ctx: Ctx, sessionId: string, roomId: string, input: JoinInput): Promise<RoomSnapshot> {
   const { db } = ctx;
-  const existing = (() => {
-    getRoomRow(db, roomId);
-    return findMember(db, roomId, sessionId);
-  })();
+  await getRoomRow(db, roomId);
+  const existing = await findMember(db, roomId, sessionId);
   if (existing) return buildSnapshot(db, roomId, sessionId);
 
   const nickname = text(input?.nickname, "暱稱", 1, 12);
   const requested = typeof input?.avatarId === "string" && AVATAR_IDS.includes(input.avatarId) ? input.avatarId : null;
 
-  const revision = withWriteTx(db, () => {
-    const room = getRoomRow(db, roomId);
-    if (findMember(db, roomId, sessionId)) return null; // 另一分頁剛加入
+  const revision = await withWriteTx(db, async () => {
+    const room = await getRoomRow(db, roomId);
+    if (await findMember(db, roomId, sessionId)) return null; // 另一分頁剛加入
     if (room.status === "closed" || deadlinePassed(room)) throw err.closed();
-    insertMember(db, roomId, sessionId, nickname, requested ?? pickAvatar(db, roomId), "participant");
+    await insertMember(db, roomId, sessionId, nickname, requested ?? await pickAvatar(db, roomId), "participant");
     return bumpRevision(db, roomId);
   });
   if (revision !== null) ctx.events.roomChanged(roomId, revision);
   return buildSnapshot(db, roomId, sessionId);
 }
 
-export function getPublicInfo(db: Db, roomId: string): RoomPublicInfo {
-  const room = getRoomRow(db, roomId);
-  const n = db.prepare("SELECT COUNT(*) AS n FROM members WHERE room_id = ?").get(roomId) as { n: number };
-  return { id: room.id, title: room.title, status: room.status, memberCount: n.n };
+export async function getPublicInfo(db: Db, roomId: string): Promise<RoomPublicInfo> {
+  const room = await getRoomRow(db, roomId);
+  const n = await db.prepare("SELECT COUNT(*) AS n FROM members WHERE room_id = ?").bind(roomId).first<{ n: number }>();
+  return { id: room.id, title: room.title, status: room.status, memberCount: n!.n };
 }

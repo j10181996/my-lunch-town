@@ -61,15 +61,17 @@ export function attachRealtime(httpServer: HttpServer, db: Db): RoomEvents {
   io.on("connection", (socket: Socket) => {
     const data = socket.data as SocketData;
 
-    socket.on("room:subscribe", (roomId: unknown, ack?: (r: { ok: boolean; code?: string }) => void) => {
+    socket.on("room:subscribe", async (roomId: unknown, ack?: (r: { ok: boolean; code?: string }) => void) => {
       const reply = typeof ack === "function" ? ack : () => {};
       if (typeof roomId !== "string" || data.roomId) return reply({ ok: false, code: "INVALID_INPUT" });
       try {
-        getRoomRow(db, roomId);
+        await getRoomRow(db, roomId);
       } catch {
         return reply({ ok: false, code: "ROOM_NOT_FOUND" });
       }
-      const me = findMember(db, roomId, data.sid);
+      const me = await findMember(db, roomId, data.sid);
+      // 等待查詢期間可能已訂閱其他團。
+      if (data.roomId) return reply({ ok: false, code: "INVALID_INPUT" });
       if (!me) return reply({ ok: false, code: "SESSION_REQUIRED" });
       data.roomId = roomId;
       data.memberId = me.id;
@@ -80,11 +82,11 @@ export function attachRealtime(httpServer: HttpServer, db: Db): RoomEvents {
       socket.emit("presence:snapshot", snapshotOf(roomId));
     });
 
-    socket.on("store:subscribe", (storeId: unknown, ack?: (r: { ok: boolean; code?: string }) => void) => {
+    socket.on("store:subscribe", async (storeId: unknown, ack?: (r: { ok: boolean; code?: string }) => void) => {
       const reply = typeof ack === "function" ? ack : () => {};
       if (typeof storeId !== "string") return reply({ ok: false, code: "INVALID_INPUT" });
       try {
-        requireOwner(db, data.sid, storeId);
+        await requireOwner(db, data.sid, storeId);
         (data.storeIds ??= new Set()).add(storeId);
         socket.join(`store:${storeId}`);
         reply({ ok: true });
@@ -134,18 +136,20 @@ export function attachRealtime(httpServer: HttpServer, db: Db): RoomEvents {
       io.to(roomId).emit("room:changed", { roomId, revision });
     },
     storeOrdersChanged(storeId) {
-      // 認領可能改變擁有者；既有連線每次通知前也重新核對權限。
-      for (const socket of io.sockets.sockets.values()) {
-        const data = socket.data as SocketData;
-        if (!data.storeIds?.has(storeId)) continue;
-        try {
-          requireOwner(db, data.sid, storeId);
-        } catch {
-          socket.leave(`store:${storeId}`);
-          data.storeIds.delete(storeId);
+      // 認領可能改變擁有者；既有連線每次通知前也重新核對權限，核對完才推送。
+      void (async () => {
+        for (const socket of io.sockets.sockets.values()) {
+          const data = socket.data as SocketData;
+          if (!data.storeIds?.has(storeId)) continue;
+          try {
+            await requireOwner(db, data.sid, storeId);
+          } catch {
+            socket.leave(`store:${storeId}`);
+            data.storeIds.delete(storeId);
+          }
         }
-      }
-      io.to(`store:${storeId}`).emit("store:orders-changed", { storeId });
+        io.to(`store:${storeId}`).emit("store:orders-changed", { storeId });
+      })().catch((e) => console.error("店家訂單通知失敗", e));
     },
     bubble(roomId, memberId, text) {
       io.to(roomId).emit("player:bubble", { memberId, text });

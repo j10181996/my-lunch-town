@@ -1,5 +1,5 @@
-import type { Db } from "../db";
-import { withWriteTx } from "../db-shared";
+import type { SyncDb as Db } from "../db-shared";
+import { withSyncTx } from "../db-shared";
 import { BASELINE_SCHEMA } from "./baseline";
 import { upgradeLegacy, type LegacySeedStore } from "./legacy";
 
@@ -50,7 +50,7 @@ export function migrate(db: Db, options: MigrateOptions): string[] {
     if (hasAnyTable(db)) {
       // 舊庫：先補齊到基線，再把基線記為已套用，之後只跑基線以後的遷移。
       upgradeLegacy(db, options.legacySeedStores);
-      withWriteTx(db, () => {
+      withSyncTx(db, () => {
         db.exec(TRACKING_SCHEMA);
         db.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(BASELINE, Date.now());
       });
@@ -62,7 +62,7 @@ export function migrate(db: Db, options: MigrateOptions): string[] {
   const ran: string[] = [];
   for (const migration of migrations) {
     if (applied.has(migration.name)) continue;
-    withWriteTx(db, () => {
+    withSyncTx(db, () => {
       migration.up(db);
       db.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)").run(migration.name, Date.now());
     });

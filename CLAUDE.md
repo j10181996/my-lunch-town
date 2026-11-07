@@ -28,10 +28,10 @@ HOST=127.0.0.1 SEED_FILE=shared/catalog/seed.json DEMO_KEY= npm run dev
 ## 必須遵守的架構限制
 
 - **路由只有一份**：`server/api.ts` 的 Hono app `api`，Node（`server/app.ts`）與 Worker（`worker/index.ts`）都以 `api.fetch(request, { ctx, sid, body, demoKey })` 呼叫。handler 只從 `c.env` 取 `ctx`、`sid`、`body`，不可自行讀 request body；Origin、Cookie 工作階段、body 解析由外層的 `readApiRequest` 統一處理。
-- **資料庫在 Worker 會被替換**：建置時 `server/db.ts` 會換成 `worker/db.ts`（sql.js）。領域模組以相對路徑 `../db` 匯入，只用同步的 `db.prepare().get/all/run` 與 `db.exec`，不可使用 `node:fs`、`node:path` 等 Worker 沒有的 API（`node:crypto` 可用）。
+- **資料庫在 Worker 會被替換**：建置時 `server/db.ts` 會換成 `worker/db.ts`（sql.js）。領域模組以相對路徑 `../db` 匯入，只用非同步、D1 形狀的 `Db`（`await db.prepare(sql).bind(...).first()／all()／run()`、`db.batch`），不可使用 `node:fs`、`node:path` 等 Worker 沒有的 API（`node:crypto` 可用）。
 - **業務表 schema 不在 Drizzle**：在 `server/schema/`。新表或新欄位一律在 `server/schema/migrate.ts` 的 `MIGRATIONS` 最後加一筆遷移；Node 的 `openDb` 與 Worker 的 `openSnapshot` 都只呼叫 `migrate()`。`baseline.ts`、`legacy.ts` 已凍結，不要修改。`db/schema.ts`／`drizzle/` 只管 D1 外層的 `app_state`、`live_presence`。
 - **即時通道是兩套**：Node 在 `server/realtime/realtime.ts`，Sites 在 `worker/index.ts` 的 `live` 路由與 `web/adapters/sites-live.ts`。新增即時事件兩邊都要處理。
-- **寫入規則**：改動團單的寫入包在 `withWriteTx`，成功後 `bumpRevision`，提交後才呼叫 `ctx.events`。可能重送的寫入帶 `requestId` 並寫入 `processed_requests` 去重；去重檢查排在收單檢查之前。
+- **寫入規則**：改動團單的寫入包在 `await withWriteTx(db, async () => ...)`，成功後 `bumpRevision`，提交後才呼叫 `ctx.events`。身分與狀態檢查放在交易內，交易前不要先 `await` 查詢（交易依呼叫順序排隊，先查會打亂先到先提交）。可能重送的寫入帶 `requestId` 並寫入 `processed_requests` 去重；去重檢查排在收單檢查之前。
 - **錯誤**：領域模組用 `err.*`（`server/db-shared.ts`）；`shared/` 的純函式不得依賴 server，改拋帶 `code: "INVALID_INPUT"` 的 Error。API 錯誤回 `{ code, message }`，`message` 為繁中使用者文字。
 - **前端路由兩處登記**：新增頁面路徑時，`web/main.tsx` 與 `worker/assets.ts` 的 `servePageOrAsset` 都要加，否則 Sites 上直接開啟該網址會失敗。
 - **前端**：API 呼叫只經過 `web/adapters/http.ts` 的 gateway，元件不直接 `fetch`。即時同步依 `import.meta.env.VITE_SITES` 切換。
