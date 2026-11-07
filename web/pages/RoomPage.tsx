@@ -113,6 +113,7 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState("");
   const [showFeedback, setShowFeedback] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [nearMealId, setNearMealId] = useState<string | null>(null);
 
   const isOwner = snap.me.role === "owner";
@@ -205,12 +206,13 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
         </button>
       </TopBar>
 
-      <div className="room-main">
+      <div className={`room-main${panelCollapsed ? " panel-collapsed" : ""}`}>
         <GameView
           snap={snap}
           presence={presence}
           online={conn === "online"}
           canOrder={canEdit}
+          controlsEnabled={!invite && !confirmClose && !paymentSettings && exportText === null}
           onPickProduct={(id) => room.change(id, 1)}
           onNearProduct={setNearMealId}
           onReady={(g) => (gameRef.current = g)}
@@ -218,7 +220,11 @@ function RoomView({ room }: { room: ReturnType<typeof useRoom> }) {
           onMove={onMove}
         />
 
-        <aside className="side">
+        <button type="button" className="mobile-panel-toggle" aria-expanded={!panelCollapsed} aria-controls="room-order-panel"
+          onClick={() => setPanelCollapsed(!panelCollapsed)}>
+          {panelCollapsed ? "▲ 展開菜單與訂單" : "▼ 收合菜單，放大街景"} · 我的訂單 {snap.myTotalQuantity} 份
+        </button>
+        <aside className="side" id="room-order-panel">
           {conn === "offline" && <div className="banner error">連線中斷，暫停修改；恢復後會自動同步</div>}
           {resolving && <div className="banner info">正在確認先前未完成的操作…</div>}
           {closed && <div className="banner info">已收單，訂單已鎖定，不能再修改</div>}
