@@ -30,7 +30,7 @@ export async function buildApp({ ctx, staticDir, secureCookie = false, demoKey }
 
   app.decorateRequest("sid", "");
   app.addHook("onRequest", async (req, reply) => {
-    if (!req.url.startsWith("/api/")) return;
+    if (!req.url.startsWith("/api/") || req.url.startsWith("/api/meal-images/")) return;
     let sid = req.cookies[SESSION_COOKIE];
     if (!sid || !SID_RE.test(sid)) {
       sid = randomId(24);

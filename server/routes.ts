@@ -1,3 +1,4 @@
+import { uploadMealImage, readMealImage } from "./images/images";
 import { listManagementStores } from "./stores/store-list";
 import { setHours } from "./stores/stores";
 import { sendEmote, setSocial } from "./rooms/social";
@@ -69,6 +70,9 @@ export function registerRoutes(app: FastifyInstance, ctx: Ctx, demoKey?: string)
   );
 
   app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/hours", async (req) => setHours(db, req.sid, req.params.storeId, req.body));
+
+  app.post<{ Params: { storeId: string } }>("/api/stores/:storeId/images", async (req) => uploadMealImage(ctx, req.sid, req.params.storeId, req.body));
+  app.get<{ Params: { imageId: string } }>("/api/meal-images/:imageId", async (req, reply) => reply.type("image/png").send(await readMealImage(ctx, req.params.imageId)));
 
   // —— 店家 ——
   app.put<{ Params: { storeId: string } }>("/api/stores/:storeId/delivery", async (req) =>

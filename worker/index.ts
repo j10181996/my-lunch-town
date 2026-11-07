@@ -19,6 +19,10 @@ interface Env {
   DB: { prepare(sql: string): Statement };
   ASSETS: { fetch(request: Request): Promise<Response> };
   DEMO_KEY?: string;
+  BUCKET?: {
+    put(key: string, bytes: Uint8Array, options?: { httpMetadata: { contentType: string } }): Promise<unknown>;
+    get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  };
 }
 interface Stored { revision: number; bytes: number[] | ArrayBuffer }
 const SID_RE = /^[a-z0-9]{24}$/;
@@ -134,7 +138,7 @@ export default {
       }
       const existing = request.headers.get("cookie")?.match(/(?:^|;\s*)lt_sid=([^;]+)/)?.[1];
       const sid = existing && SID_RE.test(existing) ? existing : randomId(24);
-      if (sid !== existing) headers.set("set-cookie", `lt_sid=${sid}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=2592000`);
+      if (sid !== existing && !url.pathname.startsWith("/api/meal-images/")) headers.set("set-cookie", `lt_sid=${sid}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=2592000`);
       let body: unknown;
       if (request.method !== "GET") {
         if (Number(request.headers.get("content-length")) > 65536) throw err.invalid("請求內容過大");
@@ -156,7 +160,10 @@ export default {
           // 舊快照沒有後來新增的資料表時在記憶體補建，寫入時一併保存。
           db.exec(PAYMENT_REMINDER_SCHEMA);
           db.prepare("INSERT OR IGNORE INTO sessions (id, created_at) VALUES (?, ?)").run(sid, Date.now());
-          const ctx: Ctx = { db, events: {
+          const ctx: Ctx = { db, images: env.BUCKET ? {
+            async put(key, bytes) { await env.BUCKET!.put(key, bytes, { httpMetadata: { contentType: "image/png" } }); },
+            async get(key) { const object = await env.BUCKET!.get(key); return object ? new Uint8Array(await object.arrayBuffer()) : null; },
+          } : undefined, events: {
             roomChanged() {}, storeOrdersChanged() {},
             bubble(roomId, memberId, text) {
               db.prepare("INSERT INTO live_bubbles (room_id, member_id, text, created_at) VALUES (?, ?, ?, ?)").run(roomId, memberId, text, Date.now());
@@ -172,6 +179,10 @@ export default {
             if (committed.meta.changes !== 1) continue;
           }
           headers.set("content-type", contentType);
+          if (contentType === "image/png" && result instanceof Uint8Array) {
+            headers.set("cache-control", "public, max-age=31536000, immutable");
+            return new Response(new Uint8Array(result).buffer, { headers });
+          }
           return new Response(contentType.startsWith("text/") ? String(result) : JSON.stringify(result), { headers });
         } finally { raw.close(); }
       }

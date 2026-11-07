@@ -373,3 +373,7 @@ export interface ManagementStore {
   managePath: string;
 }
 export interface ManagementStoreList { scope: "all"; stores: ManagementStore[] }
+
+export interface StoreAdminGateway {
+  uploadImage(storeId: Id, pixels: number[]): Promise<{ imageAssetKey: string }>;
+}

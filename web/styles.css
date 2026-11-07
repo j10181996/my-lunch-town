@@ -297,3 +297,10 @@ label.field small { font-weight: 400; color: var(--sub); }
   .friend-interact { font-size: 12px; }
 }
 .diet-picker .chip { min-height: 30px; padding: 0 8px; font-size: 13px; border-width: 1px; }
+
+.photo-uploader { border-bottom: 2px dashed var(--line); padding-bottom: 16px; }
+.photo-uploader h4, .photo-uploader p { margin: 0; }
+.photo-preview { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.photo-preview img { background: repeating-conic-gradient(#f4e9d6 0% 25%, #fff8eb 0% 50%) 0 / 16px 16px; border: 2px solid var(--line); flex: none; }
+.photo-preview p { flex: 1; min-width: 160px; }
+.photo-uploader input[type=file] { max-width: 100%; }
