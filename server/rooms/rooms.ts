@@ -1,3 +1,4 @@
+import { socialEnabled } from "./social-schema";
 import type {
   Catalog,
   CreateRoomInput,
@@ -167,6 +168,7 @@ export function buildSnapshot(db: Db, roomId: string, sessionId: string): RoomSn
       amountTwd: mine.totalTwd,
       status: paymentStatus(db, roomId, me.id),
     } : null,
+    socialEnabled: socialEnabled(db, me.id),
     room: toRoom(room),
     me,
     members: listMembers(db, roomId).map((m) => ({ id: m.id, nickname: m.nickname, avatarId: m.avatarId })),

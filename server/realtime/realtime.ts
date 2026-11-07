@@ -36,7 +36,9 @@ function validMove(input: unknown): MoveInput | null {
   if (typeof m.x !== "number" || typeof m.y !== "number" || !(m.x >= 0 && m.x <= 1 && m.y >= 0 && m.y <= 1)) return null;
   if (!DIRECTIONS.includes(m.direction as Direction)) return null;
   if (typeof m.seq !== "number" || !Number.isInteger(m.seq)) return null;
-  return { sceneId: m.sceneId as MoveInput["sceneId"], x: m.x, y: m.y, direction: m.direction as Direction, seq: m.seq };
+  if (m.accessory !== undefined && !["none", "flower", "leaf", "cap"].includes(m.accessory)) return null;
+  if (m.badge !== undefined && !["visit", "order", "friend", "collect"].includes(m.badge)) return null;
+  return { accessory: m.accessory, badge: m.badge, sceneId: m.sceneId as MoveInput["sceneId"], x: m.x, y: m.y, direction: m.direction as Direction, seq: m.seq };
 }
 
 /** 角色位置只存記憶體；訂單變更只透過 room:changed 通知，資料以 HTTP snapshot 為準。 */
